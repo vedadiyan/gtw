@@ -50,6 +50,20 @@ func (i *Service[T]) Value() *T {
 	return di.ResolveWithNameOrPanic[T](i.name, options)
 }
 
+func (i *Service[T]) ValueOrNil() *T {
+	var options *di.Options
+	if i.hasScope {
+		options = di.NewOptions(i.scopeId, i.ttl)
+	}
+	if len(i.name) == 0 {
+		return di.ResolveOrNil[T](options)
+	}
+	if inst, err := di.ResolveWithName[T](i.name, options); err == nil {
+		return inst
+	}
+	return nil
+}
+
 func (i *Service[T]) Scope(scopeId uint64, ttl time.Duration) *Service[T] {
 	copy := *i
 	copy.hasScope = true

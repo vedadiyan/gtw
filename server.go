@@ -161,3 +161,7 @@ func CorsAllowAll() *Cors {
 		MaxAge:         "3628800",
 	}
 }
+
+func Register[T any](server *Server) {
+	server.Register(new(T))
+}
