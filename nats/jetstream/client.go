@@ -22,8 +22,6 @@ type (
 	NatsJetStreamClientOption func(*NatsJetStreamClient) error
 )
 
-// Client Options
-
 func WithTimeout(timeout time.Duration) NatsJetStreamClientOption {
 	return func(c *NatsJetStreamClient) error {
 		c.timeout = timeout
@@ -65,13 +63,11 @@ func WithNatsJetStreamClientOptions(opts ...nats.Option) NatsJetStreamClientOpti
 		if err != nil {
 			return fmt.Errorf("failed to connect to NATS: %w", err)
 		}
-		// Close old connection if exists
 		if c.conn != nil {
 			c.conn.Close()
 		}
 		c.conn = conn
 
-		// Recreate JetStream context
 		js, err := jetstream.New(conn)
 		if err != nil {
 			conn.Close()
@@ -97,12 +93,11 @@ func NewClient(url string, opts ...NatsJetStreamClientOption) (*NatsJetStreamCli
 	client := &NatsJetStreamClient{
 		conn:        conn,
 		js:          js,
-		timeout:     5 * time.Second, // Default timeout
-		publishOnly: false,           // Default to request-reply
-		useAsync:    false,           // Default to sync publish
+		timeout:     5 * time.Second,
+		publishOnly: false,
+		useAsync:    false,
 	}
 
-	// Apply options
 	for _, opt := range opts {
 		if err := opt(client); err != nil {
 			conn.Close()
@@ -114,54 +109,45 @@ func NewClient(url string, opts ...NatsJetStreamClientOption) (*NatsJetStreamCli
 }
 
 func (jc *NatsJetStreamClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
-	// Export message to NATS format
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
 	}
 
-	// Get subject from pattern
 	subject := p.Pattern()
 
-	// Create request message
 	reqMsg := &nats.Msg{
 		Subject: subject,
 		Header:  natsMsg.Header,
 		Data:    natsMsg.Data,
 	}
 
-	// Handle based on client mode
 	if jc.publishOnly {
-		// Publish mode: fire-and-forget via JetStream
 		if jc.useAsync {
-			// Async publish
-			_, err := jc.js.PublishMsgAsync(reqMsg)
+			ack, err := jc.js.PublishMsgAsync(reqMsg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to publish async: %w", err)
 			}
+			if err := <-ack.Err(); err != nil {
+				return nil, fmt.Errorf("failed to publish async: %w", err)
+			}
 		} else {
-			// Sync publish with acknowledgment
 			_, err := jc.js.PublishMsg(context.Background(), reqMsg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to publish: %w", err)
 			}
 		}
-		// Return empty message for publish-only mode
 		return &gtw.Message{}, nil
 	}
 
-	// Request-Reply mode: use core NATS request (JetStream doesn't have built-in request-reply)
-	// JetStream is for persistence, request-reply uses core NATS
 	respMsg, err := jc.conn.RequestMsg(reqMsg, jc.timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	// Import response back to Message
 	return gtw.Import((*gtw.NatsMsg)(respMsg))
 }
 
-// Publish sends a message to JetStream without expecting a response
 func (jc *NatsJetStreamClient) Publish(p gtw.Pattern, msg *gtw.Message) (*jetstream.PubAck, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
@@ -184,7 +170,6 @@ func (jc *NatsJetStreamClient) Publish(p gtw.Pattern, msg *gtw.Message) (*jetstr
 	return ack, nil
 }
 
-// PublishAsync sends a message asynchronously to JetStream
 func (jc *NatsJetStreamClient) PublishAsync(p gtw.Pattern, msg *gtw.Message) (jetstream.PubAckFuture, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
@@ -207,7 +192,6 @@ func (jc *NatsJetStreamClient) PublishAsync(p gtw.Pattern, msg *gtw.Message) (je
 	return future, nil
 }
 
-// Request sends a request using core NATS and waits for response
 func (jc *NatsJetStreamClient) Request(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
@@ -230,7 +214,6 @@ func (jc *NatsJetStreamClient) Request(p gtw.Pattern, msg *gtw.Message) (*gtw.Me
 	return gtw.Import((*gtw.NatsMsg)(respMsg))
 }
 
-// Close closes the NATS connection
 func (jc *NatsJetStreamClient) Close() error {
 	if jc.conn != nil {
 		jc.conn.Close()
@@ -238,7 +221,6 @@ func (jc *NatsJetStreamClient) Close() error {
 	return nil
 }
 
-// Drain drains the connection gracefully
 func (jc *NatsJetStreamClient) Drain() error {
 	if jc.conn != nil {
 		return jc.conn.Drain()
@@ -246,7 +228,6 @@ func (jc *NatsJetStreamClient) Drain() error {
 	return nil
 }
 
-// IsConnected checks if the client is connected
 func (jc *NatsJetStreamClient) IsConnected() bool {
 	return jc.conn != nil && jc.conn.IsConnected()
 }
