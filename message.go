@@ -2,13 +2,13 @@ package gtw
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"maps"
 	"net/http"
 	"strconv"
 
-	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc/metadata"
 )
@@ -23,6 +23,7 @@ type (
 	}
 	WebSocketMsg struct {
 		MessageType int
+		Subject     string
 		Data        []byte
 		Headers     http.Header
 	}
@@ -86,7 +87,13 @@ func convertToProtocol[T MessageConstraint](msg *Message) (*T, error) {
 	case GrpcMsg:
 		return any(exportGrpcMsg(msg)).(*T), nil
 	case WebSocketMsg:
-		return any(exportWebSocketMsg(msg)).(*T), nil
+		{
+			msg, err := exportWebSocketMsg(msg)
+			if err != nil {
+				return nil, err
+			}
+			return any(msg).(*T), nil
+		}
 	default:
 		return nil, ErrInvalidProtocol
 	}
@@ -123,13 +130,16 @@ func exportGrpcMsg(msg *Message) *GrpcMsg {
 	return grpcMsg
 }
 
-func exportWebSocketMsg(msg *Message) *WebSocketMsg {
-	wsMsg := &WebSocketMsg{
-		MessageType: websocket.TextMessage,
-		Data:        readDataOrEmpty(msg.Data),
-		Headers:     http.Header(msg.Headers),
+func exportWebSocketMsg(msg *Message) (*WebSocketMsg, error) {
+	var out WebSocketMsg
+	data, err := io.ReadAll(msg.Data)
+	if err != nil {
+		return nil, err
 	}
-	return wsMsg
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func convertToNatsHeaders(headers Header) nats.Header {
@@ -171,7 +181,7 @@ func Import[T MessageConstraint](in *T) (*Message, error) {
 	case *GrpcMsg:
 		return importGrpcMsg(v), nil
 	case *WebSocketMsg:
-		return importWebSocketMsg(v), nil
+		return importWebSocketMsg(v)
 	default:
 		return nil, ErrInvalidProtocol
 	}
@@ -235,19 +245,23 @@ func importGrpcMsg(msg *GrpcMsg) *Message {
 	}
 }
 
-func importWebSocketMsg(msg *WebSocketMsg) *Message {
+func importWebSocketMsg(msg *WebSocketMsg) (*Message, error) {
 	headers := make(Header)
 	if msg.Headers != nil {
 		maps.Copy(headers, msg.Headers)
 	}
 
+	json, err := json.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Message{
 		msgType:    TypeWebSocketMsg,
-		Headers:    headers,
-		Data:       io.NopCloser(bytes.NewReader(msg.Data)),
+		Data:       io.NopCloser(bytes.NewReader(json)),
 		StatusCode: 0, // WebSocket messages don't have status codes
 		protocol:   msg,
-	}
+	}, nil
 }
 
 func getBodyOrEmpty(body io.ReadCloser) io.ReadCloser {

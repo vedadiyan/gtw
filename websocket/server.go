@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,19 +26,22 @@ type (
 	Option func(*websocket.Upgrader)
 )
 
-func New(address string, opts ...Option) *WebSocketServer {
-	defaultUpgrader := &websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
-	}
+var defaultUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func NewWebSocketServer(address string, opts ...Option) *WebSocketServer {
+	upgrader := defaultUpgrader
 	for _, opt := range opts {
-		opt(defaultUpgrader)
+		opt(&upgrader)
 	}
+
 	ws := &WebSocketServer{
-		upgrader:    *defaultUpgrader,
+		upgrader:    upgrader,
 		handlers:    make(map[string]gtw.MessageHandler),
 		address:     address,
 		connections: make(map[*websocket.Conn]bool),
@@ -56,15 +60,6 @@ func New(address string, opts ...Option) *WebSocketServer {
 }
 
 func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	ws.mut.Lock()
-	handler, ok := ws.handlers[r.URL.Path]
-	ws.mut.Unlock()
-
-	if !ok {
-		http.Error(w, "No handler registered for path", http.StatusNotFound)
-		return
-	}
-
 	conn, err := ws.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("failed to upgrade connection: %v", err)
@@ -83,7 +78,7 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 	}()
 
 	for {
-		messageType, data, err := conn.ReadMessage()
+		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("websocket error: %v", err)
@@ -91,36 +86,41 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 			break
 		}
 
-		wsMsg := &gtw.WebSocketMsg{
-			MessageType: messageType,
-			Data:        data,
-			Headers:     r.Header,
-		}
-
-		msg, err := gtw.Import(wsMsg)
-		if err != nil {
-			log.Printf("failed to import WebSocket message: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("failed to process message"))
+		var wsReq gtw.WebSocketMsg
+		if err := json.Unmarshal(data, &wsReq); err != nil {
+			log.Printf("failed to unmarshal message: %v", err)
 			continue
 		}
 
-		res, err := handler(msg)
+		ws.mut.Lock()
+		fn, ok := ws.handlers[wsReq.Subject]
+		ws.mut.Unlock()
+
+		if !ok {
+			log.Printf("no handler for subject: %s", wsReq.Subject)
+			continue
+		}
+
+		msg, err := gtw.Import(&wsReq)
+		if err != nil {
+			log.Printf("failed to import WebSocket message: %v", err)
+			continue
+		}
+
+		res, err := fn(msg)
 		if err != nil {
 			log.Printf("handler error: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("handler error"))
 			continue
 		}
 
 		if res == nil {
 			log.Println("handler returned nil response")
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("nil response"))
 			continue
 		}
 
 		wsRes, err := gtw.Export[gtw.WebSocketMsg](res)
 		if err != nil {
 			log.Printf("failed to export response: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("failed to export response"))
 			continue
 		}
 
@@ -140,16 +140,16 @@ func (ws *WebSocketServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) e
 		return gtw.ErrServerAlreadyRunning
 	}
 
-	path := p.Pattern()
-	if path == "" {
-		path = "/"
+	subject := p.Pattern()
+	if subject == "" {
+		return fmt.Errorf("pattern cannot be empty")
 	}
 
-	if _, exists := ws.handlers[path]; exists {
-		return fmt.Errorf("handler already registered for path: %s", path)
+	if _, exists := ws.handlers[subject]; exists {
+		return fmt.Errorf("handler already registered for subject: %s", subject)
 	}
 
-	ws.handlers[path] = fn
+	ws.handlers[subject] = fn
 	return nil
 }
 
