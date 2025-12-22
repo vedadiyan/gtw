@@ -117,7 +117,7 @@ func NewClient(opts ...HttpClientOption) (*HttpClient, error) {
 	return client, nil
 }
 
-func (hc *HttpClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
+func (hc *HttpClient) Call(p gtw.Pattern, msg gtw.Message) (gtw.Message, error) {
 	req, err := gtw.Export[gtw.HttpRequest](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)

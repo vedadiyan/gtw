@@ -18,8 +18,8 @@ type (
 	}
 )
 
-func (t *TestAPI) GetHandler(req *gtw.Message) (*gtw.Message, error) {
-	return &gtw.Message{StatusCode: 200}, nil
+func (t *TestAPI) GetHandler(req *gtw.Message) (gtw.Message, error) {
+	return &gtw.GenericMessage{StatusCode: 200}, nil
 }
 
 func TestParse(t *testing.T) {

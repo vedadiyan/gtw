@@ -108,7 +108,7 @@ func NewClient(url string, opts ...NatsJetStreamClientOption) (*NatsJetStreamCli
 	return client, nil
 }
 
-func (jc *NatsJetStreamClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
+func (jc *NatsJetStreamClient) Call(p gtw.Pattern, msg gtw.Message) (gtw.Message, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
@@ -137,7 +137,7 @@ func (jc *NatsJetStreamClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Messa
 				return nil, fmt.Errorf("failed to publish: %w", err)
 			}
 		}
-		return &gtw.Message{}, nil
+		return &gtw.GenericMessage{}, nil
 	}
 
 	respMsg, err := jc.conn.RequestMsg(reqMsg, jc.timeout)
@@ -148,7 +148,7 @@ func (jc *NatsJetStreamClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Messa
 	return gtw.Import((*gtw.NatsMsg)(respMsg))
 }
 
-func (jc *NatsJetStreamClient) Publish(p gtw.Pattern, msg *gtw.Message) (*jetstream.PubAck, error) {
+func (jc *NatsJetStreamClient) Publish(p gtw.Pattern, msg gtw.Message) (*jetstream.PubAck, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
@@ -170,7 +170,7 @@ func (jc *NatsJetStreamClient) Publish(p gtw.Pattern, msg *gtw.Message) (*jetstr
 	return ack, nil
 }
 
-func (jc *NatsJetStreamClient) PublishAsync(p gtw.Pattern, msg *gtw.Message) (jetstream.PubAckFuture, error) {
+func (jc *NatsJetStreamClient) PublishAsync(p gtw.Pattern, msg gtw.Message) (jetstream.PubAckFuture, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
@@ -192,7 +192,7 @@ func (jc *NatsJetStreamClient) PublishAsync(p gtw.Pattern, msg *gtw.Message) (je
 	return future, nil
 }
 
-func (jc *NatsJetStreamClient) Request(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
+func (jc *NatsJetStreamClient) Request(p gtw.Pattern, msg gtw.Message) (gtw.Message, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)

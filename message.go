@@ -32,14 +32,97 @@ type (
 	}
 	MessageType string
 	Header      http.Header
-	Message     struct {
+
+	Message interface {
+		io.Reader
+		io.Writer
+		io.Closer
+		Header() Header
+		Status() int
+		Protocol() any
+	}
+
+	GenericMessage struct {
 		msgType    MessageType
-		Data       io.ReadCloser
-		Headers    Header
-		StatusCode int
+		r          io.ReadCloser
+		w          io.WriteCloser
+		header     Header
 		protocol   any
+		StatusCode int
 	}
 )
+
+func NewHttpMessage[T MessageConstraint](protocol T) *GenericMessage {
+	r, w := io.Pipe()
+	out := &GenericMessage{
+		r:        r,
+		w:        w,
+		header:   make(Header),
+		protocol: protocol,
+	}
+
+	// Set message type based on protocol
+	switch any(protocol).(type) {
+	case HttpRequest:
+		out.msgType = TypeHttpRequest
+	case HttpResponse:
+		out.msgType = TypeHttpResponse
+	case NatsMsg:
+		out.msgType = TypeNatsMsg
+	case GrpcMsg:
+		out.msgType = TypeGrpcMsg
+	case WebSocketMsg:
+		out.msgType = TypeWebSocketMsg
+	}
+
+	return out
+}
+
+func (m *GenericMessage) Status() int {
+	return m.StatusCode
+}
+
+func (m *GenericMessage) Read(p []byte) (int, error) {
+	return m.r.Read(p)
+}
+
+func (m *GenericMessage) Write(p []byte) (int, error) {
+	return m.w.Write(p)
+}
+
+func (m *GenericMessage) Close() error {
+	var err1, err2 error
+	if m.r != nil {
+		err1 = m.r.Close()
+	}
+	if m.w != nil {
+		err2 = m.w.Close()
+	}
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
+func (m *GenericMessage) Header() Header {
+	return m.header
+}
+
+func (m *GenericMessage) AddReadCloser(r io.ReadCloser) {
+	m.r = MultipleReadCloser(r, m.r)
+}
+
+func (m *GenericMessage) Protocol() any {
+	return m.protocol
+}
+
+func (m *GenericMessage) GetType() MessageType {
+	return m.msgType
+}
+
+func (m *GenericMessage) GetStatusCode() int {
+	return m.StatusCode
+}
 
 const (
 	TypeHttpRequest  MessageType = "HttpRequest"
@@ -54,28 +137,25 @@ var (
 	ErrInvalidProtocol = errors.New("invalid protocol type")
 )
 
-func (m *Message) GetType() MessageType {
-	return m.msgType
-}
-
-func (m *Message) GetStatusCode() int {
-	return m.StatusCode
-}
-
-func Export[T MessageConstraint](msg *Message) (*T, error) {
+func Export[T MessageConstraint](msg Message) (*T, error) {
 	if msg == nil {
 		return nil, ErrNilInput
 	}
 
-	out, ok := msg.protocol.(*T)
+	gm, ok := msg.(*GenericMessage)
+	if !ok {
+		return nil, ErrInvalidProtocol
+	}
+
+	out, ok := gm.protocol.(*T)
 	if ok {
 		return out, nil
 	}
 
-	return convertToProtocol[T](msg)
+	return convertToProtocol[T](gm)
 }
 
-func convertToProtocol[T MessageConstraint](msg *Message) (*T, error) {
+func convertToProtocol[T MessageConstraint](msg *GenericMessage) (*T, error) {
 	var zero T
 	switch any(zero).(type) {
 	case HttpRequest:
@@ -99,40 +179,40 @@ func convertToProtocol[T MessageConstraint](msg *Message) (*T, error) {
 	}
 }
 
-func exportHttpRequest(msg *Message) *HttpRequest {
+func exportHttpRequest(msg *GenericMessage) *HttpRequest {
 	return &HttpRequest{
-		Header: http.Header(msg.Headers),
-		Body:   msg.Data,
+		Header: http.Header(msg.header),
+		Body:   msg.r,
 	}
 }
 
-func exportHttpResponse(msg *Message) *HttpResponse {
+func exportHttpResponse(msg *GenericMessage) *HttpResponse {
 	return &HttpResponse{
 		StatusCode: msg.StatusCode,
-		Header:     http.Header(msg.Headers),
-		Body:       msg.Data,
+		Header:     http.Header(msg.header),
+		Body:       msg.r,
 	}
 }
 
-func exportNatsMsg(msg *Message) *NatsMsg {
+func exportNatsMsg(msg *GenericMessage) *NatsMsg {
 	natsMsg := &NatsMsg{
-		Header: convertToNatsHeaders(msg.Headers),
-		Data:   readDataOrEmpty(msg.Data),
+		Header: convertToNatsHeaders(msg.header),
+		Data:   readDataOrEmpty(msg.r),
 	}
 	return natsMsg
 }
 
-func exportGrpcMsg(msg *Message) *GrpcMsg {
+func exportGrpcMsg(msg *GenericMessage) *GrpcMsg {
 	grpcMsg := &GrpcMsg{
-		Metadata: convertToGrpcMetadata(msg.Headers),
-		Payload:  readDataOrEmpty(msg.Data),
+		Metadata: convertToGrpcMetadata(msg.header),
+		Payload:  readDataOrEmpty(msg.r),
 	}
 	return grpcMsg
 }
 
-func exportWebSocketMsg(msg *Message) (*WebSocketMsg, error) {
+func exportWebSocketMsg(msg *GenericMessage) (*WebSocketMsg, error) {
 	var out WebSocketMsg
-	data, err := io.ReadAll(msg.Data)
+	data, err := io.ReadAll(msg.r)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +246,7 @@ func readDataOrEmpty(data io.ReadCloser) []byte {
 	return bytes
 }
 
-func Import[T MessageConstraint](in *T) (*Message, error) {
+func Import[T MessageConstraint](in *T) (Message, error) {
 	if in == nil {
 		return nil, ErrNilInput
 	}
@@ -187,31 +267,34 @@ func Import[T MessageConstraint](in *T) (*Message, error) {
 	}
 }
 
-func importHttpRequest(req *HttpRequest) *Message {
-	return &Message{
-		msgType:    TypeHttpRequest,
-		Headers:    Header(req.Header),
-		Data:       getBodyOrEmpty(req.Body),
-		StatusCode: 0, // Requests don't have status codes
-		protocol:   req,
+func importHttpRequest(req *HttpRequest) *GenericMessage {
+	gm := NewHttpMessage(*req)
+	if req.Header != nil {
+		gm.header = Header(req.Header)
 	}
+	gm.AddReadCloser(getBodyOrEmpty(req.Body))
+	gm.StatusCode = 0 // Requests don't have status codes
+	return gm
 }
 
-func importHttpResponse(resp *HttpResponse) *Message {
-	return &Message{
-		msgType:    TypeHttpResponse,
-		Headers:    Header(resp.Header),
-		Data:       getBodyOrEmpty(resp.Body),
-		StatusCode: resp.StatusCode,
-		protocol:   resp,
+func importHttpResponse(resp *HttpResponse) *GenericMessage {
+	gm := NewHttpMessage(*resp)
+	if resp.Header != nil {
+		gm.header = Header(resp.Header)
 	}
+	gm.AddReadCloser(getBodyOrEmpty(resp.Body))
+	gm.StatusCode = resp.StatusCode
+	return gm
 }
 
-func importNatsMsg(msg *NatsMsg) *Message {
+func importNatsMsg(msg *NatsMsg) *GenericMessage {
+	gm := NewHttpMessage(*msg)
+
 	headers := make(Header)
 	if msg.Header != nil {
 		maps.Copy(headers, msg.Header)
 	}
+	gm.header = headers
 
 	status := msg.Header.Get("Status")
 	statusCode := 0
@@ -220,48 +303,43 @@ func importNatsMsg(msg *NatsMsg) *Message {
 			statusCode = value
 		}
 	}
+	gm.StatusCode = statusCode
 
-	return &Message{
-		msgType:    TypeNatsMsg,
-		Headers:    headers,
-		Data:       io.NopCloser(bytes.NewReader(msg.Data)),
-		StatusCode: statusCode,
-		protocol:   msg,
-	}
+	gm.AddReadCloser(io.NopCloser(bytes.NewReader(msg.Data)))
+	return gm
 }
 
-func importGrpcMsg(msg *GrpcMsg) *Message {
+func importGrpcMsg(msg *GrpcMsg) *GenericMessage {
+	gm := NewHttpMessage(*msg)
+
 	headers := make(Header)
 	if msg.Metadata != nil {
 		maps.Copy(headers, msg.Metadata)
 	}
+	gm.header = headers
+	gm.StatusCode = 0 // gRPC uses status in metadata/trailers
 
-	return &Message{
-		msgType:    TypeGrpcMsg,
-		Headers:    headers,
-		Data:       io.NopCloser(bytes.NewReader(msg.Payload)),
-		StatusCode: 0, // gRPC uses status in metadata/trailers
-		protocol:   msg,
-	}
+	gm.AddReadCloser(io.NopCloser(bytes.NewReader(msg.Payload)))
+	return gm
 }
 
-func importWebSocketMsg(msg *WebSocketMsg) (*Message, error) {
+func importWebSocketMsg(msg *WebSocketMsg) (*GenericMessage, error) {
+	gm := NewHttpMessage(*msg)
+
 	headers := make(Header)
 	if msg.Headers != nil {
 		maps.Copy(headers, msg.Headers)
 	}
+	gm.header = headers
+	gm.StatusCode = 0 // WebSocket messages don't have status codes
 
 	json, err := json.Marshal(msg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Message{
-		msgType:    TypeWebSocketMsg,
-		Data:       io.NopCloser(bytes.NewReader(json)),
-		StatusCode: 0, // WebSocket messages don't have status codes
-		protocol:   msg,
-	}, nil
+	gm.AddReadCloser(io.NopCloser(bytes.NewReader(json)))
+	return gm, nil
 }
 
 func getBodyOrEmpty(body io.ReadCloser) io.ReadCloser {

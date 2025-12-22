@@ -16,7 +16,7 @@ type (
 		Stop(context.Context) error
 		HandleMessage(Pattern, MessageHandler) error
 	}
-	MessageHandler func(*Message) (*Message, error)
+	MessageHandler func(Message) (Message, error)
 )
 
 var (

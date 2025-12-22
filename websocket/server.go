@@ -212,7 +212,7 @@ func (ws *WebSocketServer) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (ws *WebSocketServer) Broadcast(msg *gtw.Message) error {
+func (ws *WebSocketServer) Broadcast(msg gtw.Message) error {
 	ws.connMut.Lock()
 	defer ws.connMut.Unlock()
 

@@ -75,7 +75,7 @@ func NewClient(url string, opts ...NatsClientOption) (*NatsClient, error) {
 	return client, nil
 }
 
-func (nc *NatsClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
+func (nc *NatsClient) Call(p gtw.Pattern, msg gtw.Message) (gtw.Message, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
@@ -93,7 +93,7 @@ func (nc *NatsClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error
 		if err := nc.conn.PublishMsg(reqMsg); err != nil {
 			return nil, fmt.Errorf("failed to publish: %w", err)
 		}
-		return &gtw.Message{}, nil
+		return &gtw.GenericMessage{}, nil
 	}
 
 	respMsg, err := nc.conn.RequestMsg(reqMsg, nc.timeout)
@@ -104,7 +104,7 @@ func (nc *NatsClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error
 	return gtw.Import((*gtw.NatsMsg)(respMsg))
 }
 
-func (nc *NatsClient) Publish(p gtw.Pattern, msg *gtw.Message) error {
+func (nc *NatsClient) Publish(p gtw.Pattern, msg gtw.Message) error {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return fmt.Errorf("failed to export message: %w", err)

@@ -106,7 +106,7 @@ func NewClient(target string, opts ...GrpcClientOption) (*GrpcClient, error) {
 	return client, nil
 }
 
-func (gc *GrpcClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error) {
+func (gc *GrpcClient) Call(p gtw.Pattern, msg gtw.Message) (gtw.Message, error) {
 	// Export message to gRPC format
 	grpcMsg, err := gtw.Export[gtw.GrpcMsg](msg)
 	if err != nil {
@@ -134,7 +134,7 @@ func (gc *GrpcClient) Call(p gtw.Pattern, msg *gtw.Message) (*gtw.Message, error
 	return gc.callUnary(ctx, method, grpcMsg)
 }
 
-func (gc *GrpcClient) callUnary(ctx context.Context, method string, grpcMsg *gtw.GrpcMsg) (*gtw.Message, error) {
+func (gc *GrpcClient) callUnary(ctx context.Context, method string, grpcMsg *gtw.GrpcMsg) (gtw.Message, error) {
 	var response []byte
 
 	err := gc.conn.Invoke(ctx, method, grpcMsg.Payload, &response)
@@ -158,7 +158,7 @@ func (gc *GrpcClient) callUnary(ctx context.Context, method string, grpcMsg *gtw
 	return gtw.Import(respGrpcMsg)
 }
 
-func (gc *GrpcClient) callStreaming(ctx context.Context, method string, grpcMsg *gtw.GrpcMsg) (*gtw.Message, error) {
+func (gc *GrpcClient) callStreaming(ctx context.Context, method string, grpcMsg *gtw.GrpcMsg) (gtw.Message, error) {
 	// Create stream descriptor
 	desc := &grpc.StreamDesc{
 		StreamName:    method,
@@ -208,7 +208,7 @@ func (gc *GrpcClient) callStreaming(ctx context.Context, method string, grpcMsg 
 }
 
 // UnaryCall performs a unary RPC call
-func (gc *GrpcClient) UnaryCall(method string, msg *gtw.Message) (*gtw.Message, error) {
+func (gc *GrpcClient) UnaryCall(method string, msg gtw.Message) (gtw.Message, error) {
 	grpcMsg, err := gtw.Export[gtw.GrpcMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
@@ -227,7 +227,7 @@ func (gc *GrpcClient) UnaryCall(method string, msg *gtw.Message) (*gtw.Message, 
 }
 
 // StreamingCall performs a streaming RPC call
-func (gc *GrpcClient) StreamingCall(method string, msg *gtw.Message) (*gtw.Message, error) {
+func (gc *GrpcClient) StreamingCall(method string, msg gtw.Message) (gtw.Message, error) {
 	grpcMsg, err := gtw.Export[gtw.GrpcMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)

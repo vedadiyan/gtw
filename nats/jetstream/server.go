@@ -396,7 +396,7 @@ func (n *NatsJetStreamServer) CreateConsumer(subject string, fn gtw.MessageHandl
 	return nil
 }
 
-func (n *NatsJetStreamServer) Publish(subject string, msg *gtw.Message) error {
+func (n *NatsJetStreamServer) Publish(subject string, msg gtw.Message) error {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return fmt.Errorf("failed to export message: %w", err)
@@ -416,7 +416,7 @@ func (n *NatsJetStreamServer) Publish(subject string, msg *gtw.Message) error {
 	return nil
 }
 
-func (n *NatsJetStreamServer) PublishAsync(subject string, msg *gtw.Message) (jetstream.PubAckFuture, error) {
+func (n *NatsJetStreamServer) PublishAsync(subject string, msg gtw.Message) (jetstream.PubAckFuture, error) {
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)

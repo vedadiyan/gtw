@@ -73,16 +73,13 @@ func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 			return
 		}
 
-		if res.Headers != nil {
-			maps.Copy(w.Header(), res.Headers)
-			if res.StatusCode != 0 {
-				w.WriteHeader(res.StatusCode)
+		if res.Header() != nil {
+			maps.Copy(w.Header(), res.Header())
+			if res.Status() != 0 {
+				w.WriteHeader(res.Status())
 			}
 		}
-		if res.Data != nil {
-			defer res.Data.Close()
-			_, _ = io.Copy(w, res.Data)
-		}
+		_, _ = io.Copy(w, res)
 	})
 	return nil
 }

@@ -18,7 +18,7 @@ var (
 )
 
 func init() {
-	handlerType = reflect.TypeOf(func(*Message) (*Message, error) { return &Message{StatusCode: 200}, nil })
+	handlerType = reflect.TypeOf(func(Message) (Message, error) { return &GenericMessage{StatusCode: 200}, nil })
 	metadataType = reflect.TypeOf(Metadata(0))
 }
 
@@ -58,7 +58,7 @@ func register(v any) func(Server) error {
 				if !ok {
 					continue
 				}
-				handler := val.MethodByName(methodName).Interface().(func(*Message) (*Message, error))
+				handler := val.MethodByName(methodName).Interface().(func(Message) (Message, error))
 				r := fmt.Sprintf("/%s/%s", strings.TrimSuffix(prefix, "/"), strings.TrimPrefix(route, "/"))
 				r = strings.TrimLeft(r, "/")
 				if err := srv.HandleMessage(UrlWithMethod(fmt.Sprintf("/%s", r), Method(strings.ToUpper(httpMethod))), handler); err != nil {
