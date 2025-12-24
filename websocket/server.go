@@ -1,10 +1,12 @@
 package websocket
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"sync"
 
@@ -16,12 +18,12 @@ type (
 	WebSocketServer struct {
 		server      *http.Server
 		upgrader    websocket.Upgrader
-		handlers    map[string]gtw.MessageHandler
+		handlers    *http.ServeMux
 		isRunning   bool
 		mut         sync.Mutex
 		address     string
 		connections map[*websocket.Conn]bool
-		connMut     sync.Mutex
+		connMut     sync.RWMutex
 	}
 	Option func(*websocket.Upgrader)
 )
@@ -42,7 +44,7 @@ func NewWebSocketServer(address string, opts ...Option) *WebSocketServer {
 
 	ws := &WebSocketServer{
 		upgrader:    upgrader,
-		handlers:    make(map[string]gtw.MessageHandler),
+		handlers:    http.NewServeMux(),
 		address:     address,
 		connections: make(map[*websocket.Conn]bool),
 		isRunning:   false,
@@ -92,40 +94,33 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 
-		ws.mut.Lock()
-		fn, ok := ws.handlers[wsReq.Subject]
-		ws.mut.Unlock()
-
-		if !ok {
-			log.Printf("no handler for subject: %s", wsReq.Subject)
-			continue
-		}
-
-		msg, err := gtw.Import(&wsReq)
+		req, err := http.NewRequest(http.MethodPost, wsReq.Subject, bytes.NewBuffer(wsReq.Data))
 		if err != nil {
-			log.Printf("failed to import WebSocket message: %v", err)
+			log.Printf("failed to create request: %v", err)
+			continue
+		}
+		req.Header = wsReq.Headers
+
+		handler, _ := ws.handlers.Handler(req)
+		if handler == nil {
+			log.Printf("no handler found for subject: %s", wsReq.Subject)
 			continue
 		}
 
-		res, err := fn(msg)
+		res := &gtw.WebSocketMsg{
+			Headers: make(http.Header),
+			Subject: wsReq.Subject,
+		}
+
+		handler.ServeHTTP(res, req)
+
+		resData, err := json.Marshal(res)
 		if err != nil {
-			log.Printf("handler error: %v", err)
+			log.Printf("failed to marshal response: %v", err)
 			continue
 		}
 
-		if res == nil {
-			log.Println("handler returned nil response")
-			continue
-		}
-
-		wsRes, err := gtw.Export[gtw.WebSocketMsg](res)
-		if err != nil {
-			log.Printf("failed to export response: %v", err)
-			continue
-		}
-
-		err = conn.WriteMessage(messageType, wsRes.Data)
-		if err != nil {
+		if err := conn.WriteMessage(messageType, resData); err != nil {
 			log.Printf("failed to write message: %v", err)
 			break
 		}
@@ -145,11 +140,56 @@ func (ws *WebSocketServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) e
 		return fmt.Errorf("pattern cannot be empty")
 	}
 
-	if _, exists := ws.handlers[subject]; exists {
-		return fmt.Errorf("handler already registered for subject: %s", subject)
+	if fn == nil {
+		return fmt.Errorf("handler cannot be nil")
 	}
 
-	ws.handlers[subject] = fn
+	ws.handlers.HandleFunc(gtw.ToGoRouteTemplate(subject), func(w http.ResponseWriter, r *http.Request) {
+		if r == nil {
+			log.Println("received nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		req, err := gtw.Import((*gtw.HttpRequest)(r))
+		if err != nil {
+			log.Printf("failed to import request: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if req == nil {
+			log.Println("import returned nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		res, err := fn(req)
+		if err != nil {
+			log.Printf("handler error: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res == nil {
+			log.Println("handler returned nil response")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res.Header() != nil {
+			maps.Copy(w.Header(), res.Header())
+		}
+
+		if res.Status() != 0 {
+			w.WriteHeader(res.Status())
+		}
+
+		if _, err := res.WriteTo(w); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+	})
+
 	return nil
 }
 
@@ -164,11 +204,6 @@ func (ws *WebSocketServer) Start() error {
 	if ws.server == nil {
 		ws.mut.Unlock()
 		return fmt.Errorf("WebSocket server is not initialized")
-	}
-
-	if len(ws.handlers) == 0 {
-		ws.mut.Unlock()
-		return fmt.Errorf("no handlers registered")
 	}
 
 	ws.isRunning = true
@@ -192,11 +227,19 @@ func (ws *WebSocketServer) Stop(ctx context.Context) error {
 		return gtw.ErrServerNotStarted
 	}
 
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+
 	ws.connMut.Lock()
 	for conn := range ws.connections {
-		err := conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "server shutting down"))
-		if err != nil {
+		if conn == nil {
+			continue
+		}
+		if err := conn.WriteMessage(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "server shutting down"),
+		); err != nil {
 			log.Printf("failed to send close message: %v", err)
 		}
 		conn.Close()
@@ -213,26 +256,40 @@ func (ws *WebSocketServer) Stop(ctx context.Context) error {
 }
 
 func (ws *WebSocketServer) Broadcast(messageType int, msg gtw.Message) error {
-	ws.connMut.Lock()
-	defer ws.connMut.Unlock()
+	if msg == nil {
+		return fmt.Errorf("message cannot be nil")
+	}
+
+	ws.connMut.RLock()
+	defer ws.connMut.RUnlock()
 
 	wsMsg, err := gtw.Export[gtw.WebSocketMsg](msg)
 	if err != nil {
 		return fmt.Errorf("failed to export message: %w", err)
 	}
 
+	if wsMsg == nil {
+		return fmt.Errorf("exported message is nil")
+	}
+
+	var broadcastErr error
 	for conn := range ws.connections {
-		err := conn.WriteMessage(messageType, wsMsg.Data)
-		if err != nil {
+		if conn == nil {
+			continue
+		}
+		if err := conn.WriteMessage(messageType, wsMsg.Data); err != nil {
 			log.Printf("failed to broadcast to connection: %v", err)
+			if broadcastErr == nil {
+				broadcastErr = err
+			}
 		}
 	}
 
-	return nil
+	return broadcastErr
 }
 
 func (ws *WebSocketServer) ConnectionCount() int {
-	ws.connMut.Lock()
-	defer ws.connMut.Unlock()
+	ws.connMut.RLock()
+	defer ws.connMut.RUnlock()
 	return len(ws.connections)
 }

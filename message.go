@@ -369,3 +369,16 @@ func getBodyOrEmpty(body io.ReadCloser) io.ReadCloser {
 	}
 	return io.NopCloser(bytes.NewReader([]byte{}))
 }
+
+func (wsm *WebSocketMsg) Header() Header {
+	return wsm.Headers
+}
+
+func (wsm *WebSocketMsg) Write(data []byte) (int, error) {
+	wsm.Data = append(wsm.Data, data...)
+	return len(data), nil
+}
+
+func (wsm *WebSocketMsg) WriteHeader(statusCode int) {
+
+}

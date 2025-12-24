@@ -1,11 +1,11 @@
-package http
+package gtw
 
 import (
 	"fmt"
 	"strings"
 )
 
-func toGoRouteTemplate(route string) string {
+func ToGoRouteTemplate(route string) string {
 	segments := strings.Split(route, "/")
 	for i, v := range segments {
 		if strings.HasPrefix(v, ":") {

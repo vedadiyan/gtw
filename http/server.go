@@ -53,7 +53,7 @@ func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 	if _, ok := h.routes[p.Method()]; !ok {
 		h.routes[p.Method()] = http.NewServeMux()
 	}
-	h.routes[p.Method()].HandleFunc(toGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
+	h.routes[p.Method()].HandleFunc(gtw.ToGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
 		req, err := gtw.Import((*gtw.HttpRequest)(r))
 		if err != nil {
 			log.Println(err)
