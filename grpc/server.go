@@ -2,10 +2,12 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/vedadiyan/gtw/v2"
@@ -17,13 +19,72 @@ type (
 	GrpcServer struct {
 		server      *grpc.Server
 		listener    net.Listener
-		handlers    map[string]gtw.MessageHandler
+		handlers    *http.ServeMux
 		isRunning   bool
-		mut         sync.Mutex
+		mut         sync.RWMutex
 		address     string
 		serviceName string
+		grpcOptions []grpc.ServerOption
 	}
+
+	GrpcResponseWriter struct {
+		header     http.Header
+		statusCode int
+		data       []byte
+		method     string
+	}
+
+	Option func(*GrpcServer)
 )
+
+func NewGrpcResponseWriter(method string) *GrpcResponseWriter {
+	return &GrpcResponseWriter{
+		header:     make(http.Header),
+		statusCode: http.StatusOK,
+		method:     method,
+	}
+}
+
+func (w *GrpcResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *GrpcResponseWriter) Write(data []byte) (int, error) {
+	w.data = append(w.data, data...)
+	return len(data), nil
+}
+
+func (w *GrpcResponseWriter) WriteHeader(statusCode int) {
+	if w.statusCode == 0 {
+		w.statusCode = statusCode
+	}
+}
+
+func (w *GrpcResponseWriter) GetStatusCode() int {
+	return w.statusCode
+}
+
+func (w *GrpcResponseWriter) GetData() []byte {
+	return w.data
+}
+
+func (w *GrpcResponseWriter) GetMethod() string {
+	return w.method
+}
+
+func WithServerServiceName(serviceName string) Option {
+	return func(gs *GrpcServer) {
+		if serviceName != "" {
+			gs.serviceName = serviceName
+		}
+	}
+}
+
+func WithGrpcOptions(opts ...grpc.ServerOption) Option {
+	return func(gs *GrpcServer) {
+		gs.grpcOptions = append(gs.grpcOptions, opts...)
+	}
+}
 
 func (g *GrpcServer) unaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(
@@ -32,56 +93,68 @@ func (g *GrpcServer) unaryInterceptor() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		g.mut.Lock()
-		messageHandler, ok := g.handlers[info.FullMethod]
-		g.mut.Unlock()
-
-		if !ok {
-			return nil, fmt.Errorf("no handler registered for method: %s", info.FullMethod)
+		if info == nil {
+			return nil, fmt.Errorf("server info is nil")
 		}
 
 		md, _ := metadata.FromIncomingContext(ctx)
 
-		payload, ok := req.([]byte)
-		if !ok {
+		var grpcMsg gtw.GrpcMsg
+		switch v := req.(type) {
+		case []byte:
+			if err := json.Unmarshal(v, &grpcMsg); err != nil {
+				log.Printf("failed to unmarshal gRPC message: %v", err)
+				return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+			}
+		default:
 			return nil, fmt.Errorf("expected []byte payload, got %T", req)
 		}
 
-		grpcMsg := &gtw.GrpcMsg{
-			Metadata: md,
-			Payload:  payload,
-		}
-
-		msg, err := gtw.Import(grpcMsg)
+		httpReq, err := http.NewRequest(http.MethodPost, info.FullMethod, nil)
 		if err != nil {
-			log.Printf("failed to import gRPC message: %v", err)
-			return nil, err
+			log.Printf("failed to create request: %v", err)
+			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		res, err := messageHandler(msg)
+		// Convert gRPC metadata to HTTP headers
+		for key, values := range md {
+			for _, value := range values {
+				httpReq.Header.Add(key, value)
+			}
+		}
+
+		httpHandler, _ := g.handlers.Handler(httpReq)
+		if httpHandler == nil {
+			log.Printf("no handler found for method: %s", info.FullMethod)
+			return nil, fmt.Errorf("no handler registered for method: %s", info.FullMethod)
+		}
+
+		gtwReq, err := gtw.Import((*gtw.HttpRequest)(httpReq))
 		if err != nil {
-			log.Printf("handler error: %v", err)
-			return nil, err
+			log.Printf("failed to import request: %v", err)
+			return nil, fmt.Errorf("failed to import request: %w", err)
 		}
 
-		if res == nil {
-			log.Println("handler returned nil response")
-			return nil, fmt.Errorf("handler returned nil response")
+		if gtwReq == nil {
+			log.Println("import returned nil request")
+			return nil, fmt.Errorf("import returned nil request")
 		}
 
-		grpcRes, err := gtw.Export[gtw.GrpcMsg](res)
-		if err != nil {
-			log.Printf("failed to export response: %v", err)
-			return nil, err
-		}
+		writer := NewGrpcResponseWriter(info.FullMethod)
+		httpHandler.ServeHTTP(writer, httpReq)
 
-		if len(grpcRes.Metadata) > 0 {
-			if err := grpc.SendHeader(ctx, grpcRes.Metadata); err != nil {
+		// Convert HTTP headers back to gRPC metadata
+		if len(writer.Header()) > 0 {
+			outMd := metadata.New(nil)
+			for key, values := range writer.Header() {
+				outMd.Set(key, values...)
+			}
+			if err := grpc.SendHeader(ctx, outMd); err != nil {
 				log.Printf("failed to send header: %v", err)
 			}
 		}
 
-		return grpcRes.Payload, nil
+		return writer.GetData(), nil
 	}
 }
 
@@ -92,15 +165,34 @@ func (g *GrpcServer) streamInterceptor() grpc.StreamServerInterceptor {
 		info *grpc.StreamServerInfo,
 		handler grpc.StreamHandler,
 	) error {
-		g.mut.Lock()
-		messageHandler, ok := g.handlers[info.FullMethod]
-		g.mut.Unlock()
+		if ss == nil {
+			return fmt.Errorf("server stream is nil")
+		}
 
-		if !ok {
-			return fmt.Errorf("no handler registered for method: %s", info.FullMethod)
+		if info == nil {
+			return fmt.Errorf("stream server info is nil")
 		}
 
 		md, _ := metadata.FromIncomingContext(ss.Context())
+
+		httpReq, err := http.NewRequest(http.MethodPost, info.FullMethod, nil)
+		if err != nil {
+			log.Printf("failed to create request: %v", err)
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Convert gRPC metadata to HTTP headers
+		for key, values := range md {
+			for _, value := range values {
+				httpReq.Header.Add(key, value)
+			}
+		}
+
+		httpHandler, _ := g.handlers.Handler(httpReq)
+		if httpHandler == nil {
+			log.Printf("no handler found for method: %s", info.FullMethod)
+			return fmt.Errorf("no handler registered for method: %s", info.FullMethod)
+		}
 
 		for {
 			var payload []byte
@@ -111,34 +203,27 @@ func (g *GrpcServer) streamInterceptor() grpc.StreamServerInterceptor {
 				return err
 			}
 
-			grpcMsg := &gtw.GrpcMsg{
-				Metadata: md,
-				Payload:  payload,
+			var grpcMsg gtw.GrpcMsg
+			if err := json.Unmarshal(payload, &grpcMsg); err != nil {
+				log.Printf("failed to unmarshal gRPC message: %v", err)
+				return fmt.Errorf("failed to unmarshal message: %w", err)
 			}
 
-			msg, err := gtw.Import(grpcMsg)
+			gtwReq, err := gtw.Import((*gtw.HttpRequest)(httpReq))
 			if err != nil {
-				log.Printf("failed to import gRPC message: %v", err)
-				return err
+				log.Printf("failed to import request: %v", err)
+				return fmt.Errorf("failed to import request: %w", err)
 			}
 
-			res, err := messageHandler(msg)
-			if err != nil {
-				log.Printf("handler error: %v", err)
-				return err
+			if gtwReq == nil {
+				log.Println("import returned nil request")
+				return fmt.Errorf("import returned nil request")
 			}
 
-			if res == nil {
-				return fmt.Errorf("handler returned nil response")
-			}
+			writer := NewGrpcResponseWriter(info.FullMethod)
+			httpHandler.ServeHTTP(writer, httpReq)
 
-			grpcRes, err := gtw.Export[gtw.GrpcMsg](res)
-			if err != nil {
-				log.Printf("failed to export response: %v", err)
-				return err
-			}
-
-			if err := ss.SendMsg(grpcRes.Payload); err != nil {
+			if err := ss.SendMsg(writer.GetData()); err != nil {
 				return err
 			}
 		}
@@ -147,7 +232,7 @@ func (g *GrpcServer) streamInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-func New(address string, serviceName string) (*GrpcServer, error) {
+func New(address string, opts ...Option) (*GrpcServer, error) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", address, err)
@@ -155,18 +240,25 @@ func New(address string, serviceName string) (*GrpcServer, error) {
 
 	gs := &GrpcServer{
 		listener:    listener,
-		handlers:    make(map[string]gtw.MessageHandler),
+		handlers:    http.NewServeMux(),
 		address:     address,
-		serviceName: serviceName,
+		serviceName: "default",
 		isRunning:   false,
+		grpcOptions: make([]grpc.ServerOption, 0),
 	}
 
-	opts := []grpc.ServerOption{
+	// Apply options
+	for _, opt := range opts {
+		opt(gs)
+	}
+
+	// Add interceptors to gRPC options
+	serverOpts := append(gs.grpcOptions,
 		grpc.UnaryInterceptor(gs.unaryInterceptor()),
 		grpc.StreamInterceptor(gs.streamInterceptor()),
-	}
+	)
 
-	gs.server = grpc.NewServer(opts...)
+	gs.server = grpc.NewServer(serverOpts...)
 
 	return gs, nil
 }
@@ -179,13 +271,67 @@ func (g *GrpcServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 		return gtw.ErrServerAlreadyRunning
 	}
 
-	fullMethod := fmt.Sprintf("/%s/%s", g.serviceName, p.Pattern())
-
-	if _, exists := g.handlers[fullMethod]; exists {
-		return fmt.Errorf("handler already registered for method: %s", fullMethod)
+	method := p.Pattern()
+	if method == "" {
+		return fmt.Errorf("pattern cannot be empty")
 	}
 
-	g.handlers[fullMethod] = fn
+	if fn == nil {
+		return fmt.Errorf("handler cannot be nil")
+	}
+
+	fullMethod := fmt.Sprintf("/%s/%s", g.serviceName, method)
+
+	g.handlers.HandleFunc(fullMethod, func(w http.ResponseWriter, r *http.Request) {
+		if r == nil {
+			log.Println("received nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		req, err := gtw.Import((*gtw.HttpRequest)(r))
+		if err != nil {
+			log.Printf("failed to import request: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if req == nil {
+			log.Println("import returned nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		res, err := fn(req)
+		if err != nil {
+			log.Printf("handler error: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res == nil {
+			log.Println("handler returned nil response")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res.Header() != nil {
+			for key, values := range res.Header() {
+				for _, value := range values {
+					w.Header().Add(key, value)
+				}
+			}
+		}
+
+		if res.Status() != 0 {
+			w.WriteHeader(res.Status())
+		}
+
+		if _, err := res.WriteTo(w); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+	})
+
 	return nil
 }
 
@@ -202,13 +348,15 @@ func (g *GrpcServer) Start() error {
 		return fmt.Errorf("gRPC server is not initialized")
 	}
 
-	if len(g.handlers) == 0 {
+	if g.listener == nil {
 		g.mut.Unlock()
-		return fmt.Errorf("no handlers registered")
+		return fmt.Errorf("listener is not initialized")
 	}
 
 	g.isRunning = true
 	g.mut.Unlock()
+
+	log.Printf("gRPC server started on %s with service name '%s'", g.address, g.serviceName)
 
 	if err := g.server.Serve(g.listener); err != nil {
 		g.mut.Lock()
@@ -228,6 +376,10 @@ func (g *GrpcServer) Stop(ctx context.Context) error {
 		return gtw.ErrServerNotStarted
 	}
 
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+
 	stopped := make(chan struct{})
 	go func() {
 		g.server.GracefulStop()
@@ -237,10 +389,24 @@ func (g *GrpcServer) Stop(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		g.server.Stop()
+		log.Println("gRPC graceful shutdown timed out, forced stop")
 		return fmt.Errorf("graceful shutdown timed out, forced stop")
 	case <-stopped:
+		log.Println("gRPC server stopped gracefully")
 	}
 
 	g.isRunning = false
 	return nil
+}
+
+func (g *GrpcServer) GetServiceName() string {
+	g.mut.RLock()
+	defer g.mut.RUnlock()
+	return g.serviceName
+}
+
+func (g *GrpcServer) GetAddress() string {
+	g.mut.RLock()
+	defer g.mut.RUnlock()
+	return g.address
 }

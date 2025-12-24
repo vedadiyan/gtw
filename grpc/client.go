@@ -33,7 +33,7 @@ func WithTimeout(timeout time.Duration) GrpcClientOption {
 	}
 }
 
-func WithServiceName(serviceName string) GrpcClientOption {
+func WithClientServiceName(serviceName string) GrpcClientOption {
 	return func(c *GrpcClient) error {
 		c.serviceName = serviceName
 		return nil
