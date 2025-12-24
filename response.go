@@ -620,6 +620,10 @@ func NetworkAuthenticationRequired(opts ...ResponseOption) (Message, error) {
 	return msg, nil
 }
 
+func Error(err error) (Message, error) {
+	return nil, err
+}
+
 // Text Content Types
 func Text(data string) ResponseOption {
 	return contentType([]byte(data), "text/plain; charset=utf-8")
