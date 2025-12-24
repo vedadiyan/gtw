@@ -47,7 +47,7 @@ type (
 	GenericMessage struct {
 		msgType     MessageType
 		r           io.ReadCloser
-		buffer      bytes.Buffer
+		buffer      *bytes.Buffer
 		header      Header
 		protocol    any
 		StatusCode  int
@@ -59,10 +59,11 @@ type (
 func NewHttpMessage[T MessageConstraint](protocol T) *GenericMessage {
 	out := &GenericMessage{
 		header:      make(Header),
+		buffer:      bytes.NewBuffer([]byte{}),
 		protocol:    protocol,
 		initialized: true,
 	}
-	out.r = io.NopCloser(&out.buffer)
+	out.r = io.NopCloser(out.buffer)
 
 	// Set message type based on protocol
 	switch any(protocol).(type) {
@@ -99,6 +100,7 @@ func (m *GenericMessage) Close() error {
 	if m.r != nil {
 		err = m.r.Close()
 	}
+	m.buffer = nil
 	return err
 }
 
@@ -139,7 +141,8 @@ func (m *GenericMessage) init() {
 		if m.initialized {
 			return
 		}
-		m.r = io.NopCloser(&m.buffer)
+		m.buffer = bytes.NewBuffer([]byte{})
+		m.r = io.NopCloser(m.buffer)
 		m.header = make(Header)
 		m.initialized = true
 	})
