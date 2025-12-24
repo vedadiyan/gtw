@@ -844,3 +844,11 @@ func MessagePack(data []byte) ResponseOption {
 func Protobuf(data []byte) ResponseOption {
 	return contentType(data, "application/protobuf")
 }
+
+// Other options
+func WithHeader(header Header) ResponseOption {
+	return func(ro *responseOptions) error {
+		ro.headers = header
+		return nil
+	}
+}
