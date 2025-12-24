@@ -1,11 +1,13 @@
 package gtw
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/vedadiyan/gtw/v2"
 	"github.com/vedadiyan/gtw/v2/di"
-	"github.com/vedadiyan/gtw/v2/http"
+	"github.com/vedadiyan/gtw/v2/websocket"
 )
 
 type (
@@ -27,7 +29,16 @@ func TestParse(t *testing.T) {
 		i := 0
 		return &i, nil
 	})
-	server := http.New(":8082")
+
+	ttt := gtw.WebSocketMsg{
+		Subject: "test",
+		Data:    []byte("OK"),
+	}
+
+	xxx, _ := json.MarshalIndent(ttt, "", " ")
+
+	fmt.Println(string(xxx))
+	server := websocket.NewWebSocketServer(":8082")
 	gtw.Register(&TestAPI{})
 	gtw.ListenAndServer(server)
 }

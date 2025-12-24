@@ -23,10 +23,9 @@ type (
 		Payload  []byte
 	}
 	WebSocketMsg struct {
-		MessageType int
-		Subject     string
-		Data        []byte
-		Headers     http.Header
+		Subject string      `json:"subject"`
+		Data    []byte      `json:"data"`
+		Headers http.Header `json:"headers"`
 	}
 	MessageConstraint interface {
 		HttpRequest | HttpResponse | NatsMsg | GrpcMsg | WebSocketMsg
@@ -240,9 +239,7 @@ func exportWebSocketMsg(msg *GenericMessage) (*WebSocketMsg, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, err
-	}
+	out.Data = data
 	return &out, nil
 }
 

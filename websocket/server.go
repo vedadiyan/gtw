@@ -78,7 +78,7 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 	}()
 
 	for {
-		_, data, err := conn.ReadMessage()
+		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("websocket error: %v", err)
@@ -124,7 +124,7 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 
-		err = conn.WriteMessage(wsRes.MessageType, wsRes.Data)
+		err = conn.WriteMessage(messageType, wsRes.Data)
 		if err != nil {
 			log.Printf("failed to write message: %v", err)
 			break
@@ -212,7 +212,7 @@ func (ws *WebSocketServer) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (ws *WebSocketServer) Broadcast(msg gtw.Message) error {
+func (ws *WebSocketServer) Broadcast(messageType int, msg gtw.Message) error {
 	ws.connMut.Lock()
 	defer ws.connMut.Unlock()
 
@@ -222,7 +222,7 @@ func (ws *WebSocketServer) Broadcast(msg gtw.Message) error {
 	}
 
 	for conn := range ws.connections {
-		err := conn.WriteMessage(wsMsg.MessageType, wsMsg.Data)
+		err := conn.WriteMessage(messageType, wsMsg.Data)
 		if err != nil {
 			log.Printf("failed to broadcast to connection: %v", err)
 		}
