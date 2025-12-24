@@ -32,7 +32,7 @@ type (
 		HttpRequest | HttpResponse | NatsMsg | GrpcMsg | WebSocketMsg
 	}
 	MessageType string
-	Header      http.Header
+	Header      = http.Header
 
 	Message interface {
 		io.Reader
@@ -151,6 +151,7 @@ func (m *GenericMessage) init() {
 		}
 		m.r, m.w = io.Pipe()
 		m.header = make(Header)
+		m.initialized = true
 	})
 }
 
