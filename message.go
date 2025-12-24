@@ -40,6 +40,7 @@ type (
 		Header() Header
 		Status() int
 		Protocol() any
+		WriteTo(io.Writer) (int64, error)
 	}
 
 	GenericMessage struct {
@@ -122,6 +123,13 @@ func (m *GenericMessage) GetType() MessageType {
 
 func (m *GenericMessage) GetStatusCode() int {
 	return m.StatusCode
+}
+
+func (m *GenericMessage) WriteTo(w io.Writer) (int64, error) {
+	if m.r == nil {
+		return 0, nil
+	}
+	return io.Copy(w, m.r)
 }
 
 const (

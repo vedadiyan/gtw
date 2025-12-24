@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"maps"
 	"net/http"
@@ -79,7 +78,8 @@ func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 				w.WriteHeader(res.Status())
 			}
 		}
-		_, _ = io.Copy(w, res)
+
+		_, _ = res.WriteTo(w)
 	})
 	return nil
 }
