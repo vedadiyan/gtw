@@ -1,6 +1,10 @@
 package gtw
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
+	"encoding/xml"
 	"net/http"
 )
 
@@ -39,6 +43,18 @@ func createMessage(opts ...ResponseOption) (*GenericMessage, error) {
 		msg.Write(options.data)
 	}
 	return msg, nil
+}
+
+// contentType is a helper function that creates a ResponseOption with data and Content-Type header
+func contentType(data []byte, mimeType string) ResponseOption {
+	return func(ro *responseOptions) error {
+		ro.data = data
+		if ro.headers == nil {
+			ro.headers = make(Header)
+		}
+		ro.headers.Set("Content-Type", mimeType)
+		return nil
+	}
 }
 
 // 1xx Informational
@@ -604,25 +620,13 @@ func NetworkAuthenticationRequired(opts ...ResponseOption) (Message, error) {
 	return msg, nil
 }
 
-func Error(err error) (Message, error) {
-	return nil, err
-}
-
-// Content Type Options
-func Text(data []byte) ResponseOption {
-	return contentType(data, "text/plain; charset=utf-8")
+// Text Content Types
+func Text(data string) ResponseOption {
+	return contentType([]byte(data), "text/plain; charset=utf-8")
 }
 
 func HTML(data []byte) ResponseOption {
 	return contentType(data, "text/html; charset=utf-8")
-}
-
-func JSON(data []byte) ResponseOption {
-	return contentType(data, "application/json; charset=utf-8")
-}
-
-func XML(data []byte) ResponseOption {
-	return contentType(data, "application/xml; charset=utf-8")
 }
 
 func CSS(data []byte) ResponseOption {
@@ -633,6 +637,97 @@ func JavaScript(data []byte) ResponseOption {
 	return contentType(data, "application/javascript; charset=utf-8")
 }
 
+func Markdown(data []byte) ResponseOption {
+	return contentType(data, "text/markdown; charset=utf-8")
+}
+
+// Structured Data Content Types - with serialization
+func JSON(v any) ResponseOption {
+	return func(ro *responseOptions) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		ro.data = data
+		if ro.headers == nil {
+			ro.headers = make(Header)
+		}
+		ro.headers.Set("Content-Type", "application/json; charset=utf-8")
+		return nil
+	}
+}
+
+func JSONRaw(data []byte) ResponseOption {
+	return contentType(data, "application/json; charset=utf-8")
+}
+
+func XML(v any) ResponseOption {
+	return func(ro *responseOptions) error {
+		data, err := xml.Marshal(v)
+		if err != nil {
+			return err
+		}
+		ro.data = data
+		if ro.headers == nil {
+			ro.headers = make(Header)
+		}
+		ro.headers.Set("Content-Type", "application/xml; charset=utf-8")
+		return nil
+	}
+}
+
+func XMLRaw(data []byte) ResponseOption {
+	return contentType(data, "application/xml; charset=utf-8")
+}
+
+func CSV(records [][]string) ResponseOption {
+	return func(ro *responseOptions) error {
+		var buf bytes.Buffer
+		w := csv.NewWriter(&buf)
+		if err := w.WriteAll(records); err != nil {
+			return err
+		}
+		ro.data = buf.Bytes()
+		if ro.headers == nil {
+			ro.headers = make(Header)
+		}
+		ro.headers.Set("Content-Type", "text/csv; charset=utf-8")
+		return nil
+	}
+}
+
+func CSVRaw(data []byte) ResponseOption {
+	return contentType(data, "text/csv; charset=utf-8")
+}
+
+func YAML(data []byte) ResponseOption {
+	return contentType(data, "application/x-yaml; charset=utf-8")
+}
+
+func TOML(data []byte) ResponseOption {
+	return contentType(data, "application/toml; charset=utf-8")
+}
+
+func JSONLD(v any) ResponseOption {
+	return func(ro *responseOptions) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		ro.data = data
+		if ro.headers == nil {
+			ro.headers = make(Header)
+		}
+		ro.headers.Set("Content-Type", "application/ld+json; charset=utf-8")
+		return nil
+	}
+}
+
+func JSONLDRaw(data []byte) ResponseOption {
+	return contentType(data, "application/ld+json; charset=utf-8")
+}
+
+// Image Content Types
 func JPEG(data []byte) ResponseOption {
 	return contentType(data, "image/jpeg")
 }
@@ -657,10 +752,16 @@ func ICO(data []byte) ResponseOption {
 	return contentType(data, "image/x-icon")
 }
 
+func AVIF(data []byte) ResponseOption {
+	return contentType(data, "image/avif")
+}
+
+// Document Content Types
 func PDF(data []byte) ResponseOption {
 	return contentType(data, "application/pdf")
 }
 
+// Archive Content Types
 func ZIP(data []byte) ResponseOption {
 	return contentType(data, "application/zip")
 }
@@ -673,10 +774,12 @@ func TAR(data []byte) ResponseOption {
 	return contentType(data, "application/x-tar")
 }
 
+// Binary Content Types
 func OctetStream(data []byte) ResponseOption {
 	return contentType(data, "application/octet-stream")
 }
 
+// Form Content Types
 func FormURLEncoded(data []byte) ResponseOption {
 	return contentType(data, "application/x-www-form-urlencoded")
 }
@@ -685,16 +788,9 @@ func MultipartFormData(data []byte) ResponseOption {
 	return contentType(data, "multipart/form-data")
 }
 
+// Audio Content Types
 func MP3(data []byte) ResponseOption {
 	return contentType(data, "audio/mpeg")
-}
-
-func MP4(data []byte) ResponseOption {
-	return contentType(data, "video/mp4")
-}
-
-func WebM(data []byte) ResponseOption {
-	return contentType(data, "video/webm")
 }
 
 func OGG(data []byte) ResponseOption {
@@ -705,6 +801,16 @@ func WAV(data []byte) ResponseOption {
 	return contentType(data, "audio/wav")
 }
 
+// Video Content Types
+func MP4(data []byte) ResponseOption {
+	return contentType(data, "video/mp4")
+}
+
+func WebM(data []byte) ResponseOption {
+	return contentType(data, "video/webm")
+}
+
+// Font Content Types
 func WOFF(data []byte) ResponseOption {
 	return contentType(data, "font/woff")
 }
@@ -721,50 +827,16 @@ func EOT(data []byte) ResponseOption {
 	return contentType(data, "application/vnd.ms-fontobject")
 }
 
+// Streaming Content Types
 func EventStream(data []byte) ResponseOption {
 	return contentType(data, "text/event-stream")
 }
 
-func Markdown(data []byte) ResponseOption {
-	return contentType(data, "text/markdown; charset=utf-8")
-}
-
-func YAML(data []byte) ResponseOption {
-	return contentType(data, "application/x-yaml; charset=utf-8")
-}
-
-func TOML(data []byte) ResponseOption {
-	return contentType(data, "application/toml; charset=utf-8")
-}
-
-func CSV(data []byte) ResponseOption {
-	return contentType(data, "text/csv; charset=utf-8")
-}
-
-func JSONLD(data []byte) ResponseOption {
-	return contentType(data, "application/ld+json; charset=utf-8")
-}
-
+// Binary Serialization Content Types
 func MessagePack(data []byte) ResponseOption {
 	return contentType(data, "application/msgpack")
 }
 
 func Protobuf(data []byte) ResponseOption {
 	return contentType(data, "application/protobuf")
-}
-
-func AVIF(data []byte) ResponseOption {
-	return contentType(data, "image/avif")
-}
-
-// contentType is a helper function that creates a ResponseOption with data and Content-Type header
-func contentType(data []byte, mimeType string) ResponseOption {
-	return func(ro *responseOptions) error {
-		ro.data = data
-		if ro.headers == nil {
-			ro.headers = make(Header)
-		}
-		ro.headers.Set("Content-Type", mimeType)
-		return nil
-	}
 }
