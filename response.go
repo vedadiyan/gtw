@@ -8,10 +8,607 @@ type (
 	responseOptions struct {
 		data    []byte
 		headers Header
+		err     error
 	}
-	ResponseOption func(*responseOptions)
+	ResponseOption func(*responseOptions) error
 )
 
+func createMessage(opts ...ResponseOption) (*GenericMessage, error) {
+	options := new(responseOptions)
+	for _, opt := range opts {
+		if err := opt(options); err != nil {
+			return nil, err
+		}
+	}
+
+	if options.err != nil {
+		return nil, options.err
+	}
+
+	msg := new(GenericMessage)
+	msg.init()
+	if options.headers != nil {
+		header := msg.Header()
+		for key, values := range options.headers {
+			for _, value := range values {
+				header.Add(key, value)
+			}
+		}
+	}
+	if options.data != nil {
+		msg.Write(options.data)
+	}
+	return msg, nil
+}
+
+// 1xx Informational
+func Continue(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusContinue
+	return msg, nil
+}
+
+func SwitchingProtocols(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusSwitchingProtocols
+	return msg, nil
+}
+
+func Processing(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusProcessing
+	return msg, nil
+}
+
+func EarlyHints(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusEarlyHints
+	return msg, nil
+}
+
+// 2xx Success
+func Ok(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusOK
+	return msg, nil
+}
+
+func Created(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusCreated
+	return msg, nil
+}
+
+func Accepted(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusAccepted
+	return msg, nil
+}
+
+func NonAuthoritativeInfo(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNonAuthoritativeInfo
+	return msg, nil
+}
+
+func NoContent(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNoContent
+	return msg, nil
+}
+
+func ResetContent(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusResetContent
+	return msg, nil
+}
+
+func PartialContent(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusPartialContent
+	return msg, nil
+}
+
+func MultiStatus(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusMultiStatus
+	return msg, nil
+}
+
+func AlreadyReported(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusAlreadyReported
+	return msg, nil
+}
+
+func IMUsed(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusIMUsed
+	return msg, nil
+}
+
+// 3xx Redirection
+func MultipleChoices(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusMultipleChoices
+	return msg, nil
+}
+
+func MovedPermanently(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusMovedPermanently
+	return msg, nil
+}
+
+func Found(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusFound
+	return msg, nil
+}
+
+func SeeOther(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusSeeOther
+	return msg, nil
+}
+
+func NotModified(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNotModified
+	return msg, nil
+}
+
+func UseProxy(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUseProxy
+	return msg, nil
+}
+
+func TemporaryRedirect(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusTemporaryRedirect
+	return msg, nil
+}
+
+func PermanentRedirect(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusPermanentRedirect
+	return msg, nil
+}
+
+// 4xx Client Errors
+func BadRequest(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusBadRequest
+	return msg, nil
+}
+
+func Unauthorized(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUnauthorized
+	return msg, nil
+}
+
+func PaymentRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusPaymentRequired
+	return msg, nil
+}
+
+func Forbidden(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusForbidden
+	return msg, nil
+}
+
+func NotFound(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNotFound
+	return msg, nil
+}
+
+func MethodNotAllowed(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusMethodNotAllowed
+	return msg, nil
+}
+
+func NotAcceptable(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNotAcceptable
+	return msg, nil
+}
+
+func ProxyAuthRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusProxyAuthRequired
+	return msg, nil
+}
+
+func RequestTimeout(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusRequestTimeout
+	return msg, nil
+}
+
+func Conflict(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusConflict
+	return msg, nil
+}
+
+func Gone(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusGone
+	return msg, nil
+}
+
+func LengthRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusLengthRequired
+	return msg, nil
+}
+
+func PreconditionFailed(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusPreconditionFailed
+	return msg, nil
+}
+
+func RequestEntityTooLarge(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusRequestEntityTooLarge
+	return msg, nil
+}
+
+func RequestURITooLong(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusRequestURITooLong
+	return msg, nil
+}
+
+func UnsupportedMediaType(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUnsupportedMediaType
+	return msg, nil
+}
+
+func RequestedRangeNotSatisfiable(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusRequestedRangeNotSatisfiable
+	return msg, nil
+}
+
+func ExpectationFailed(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusExpectationFailed
+	return msg, nil
+}
+
+func Teapot(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusTeapot
+	return msg, nil
+}
+
+func MisdirectedRequest(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusMisdirectedRequest
+	return msg, nil
+}
+
+func UnprocessableEntity(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUnprocessableEntity
+	return msg, nil
+}
+
+func Locked(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusLocked
+	return msg, nil
+}
+
+func FailedDependency(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusFailedDependency
+	return msg, nil
+}
+
+func TooEarly(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusTooEarly
+	return msg, nil
+}
+
+func UpgradeRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUpgradeRequired
+	return msg, nil
+}
+
+func PreconditionRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusPreconditionRequired
+	return msg, nil
+}
+
+func TooManyRequests(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusTooManyRequests
+	return msg, nil
+}
+
+func RequestHeaderFieldsTooLarge(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusRequestHeaderFieldsTooLarge
+	return msg, nil
+}
+
+func UnavailableForLegalReasons(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusUnavailableForLegalReasons
+	return msg, nil
+}
+
+// 5xx Server Errors
+func InternalServerError(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusInternalServerError
+	return msg, nil
+}
+
+func NotImplemented(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNotImplemented
+	return msg, nil
+}
+
+func BadGateway(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusBadGateway
+	return msg, nil
+}
+
+func ServiceUnavailable(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusServiceUnavailable
+	return msg, nil
+}
+
+func GatewayTimeout(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusGatewayTimeout
+	return msg, nil
+}
+
+func HTTPVersionNotSupported(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusHTTPVersionNotSupported
+	return msg, nil
+}
+
+func VariantAlsoNegotiates(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusVariantAlsoNegotiates
+	return msg, nil
+}
+
+func InsufficientStorage(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusInsufficientStorage
+	return msg, nil
+}
+
+func LoopDetected(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusLoopDetected
+	return msg, nil
+}
+
+func NotExtended(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNotExtended
+	return msg, nil
+}
+
+func NetworkAuthenticationRequired(opts ...ResponseOption) (Message, error) {
+	msg, err := createMessage(opts...)
+	if err != nil {
+		return nil, err
+	}
+	msg.StatusCode = http.StatusNetworkAuthenticationRequired
+	return msg, nil
+}
+
+func Error(err error) (Message, error) {
+	return nil, err
+}
+
+// Content Type Options
 func Text(data []byte) ResponseOption {
 	return contentType(data, "text/plain; charset=utf-8")
 }
@@ -160,411 +757,14 @@ func AVIF(data []byte) ResponseOption {
 	return contentType(data, "image/avif")
 }
 
+// contentType is a helper function that creates a ResponseOption with data and Content-Type header
 func contentType(data []byte, mimeType string) ResponseOption {
-	return func(ro *responseOptions) {
+	return func(ro *responseOptions) error {
 		ro.data = data
 		if ro.headers == nil {
 			ro.headers = make(Header)
 		}
 		ro.headers.Set("Content-Type", mimeType)
+		return nil
 	}
-}
-
-func createMessage(opts ...ResponseOption) *GenericMessage {
-	options := new(responseOptions)
-	options.headers = make(http.Header)
-	for _, opt := range opts {
-		opt(options)
-	}
-	msg := new(GenericMessage)
-	msg.init()
-	if options.headers != nil {
-		header := msg.Header()
-		for key, values := range options.headers {
-			for _, value := range values {
-				header.Add(key, value)
-			}
-		}
-	}
-	if options.data != nil {
-		msg.Write(options.data)
-	}
-	return msg
-}
-
-// 1xx Informational
-func Continue(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusContinue
-	return msg
-}
-
-func SwitchingProtocols(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusSwitchingProtocols
-	return msg
-}
-
-func Processing(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusProcessing
-	return msg
-}
-
-func EarlyHints(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusEarlyHints
-	return msg
-}
-
-// 2xx Success
-func Ok(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusOK
-	return msg
-}
-
-func Created(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusCreated
-	return msg
-}
-
-func Accepted(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusAccepted
-	return msg
-}
-
-func NonAuthoritativeInfo(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNonAuthoritativeInfo
-	return msg
-}
-
-func NoContent(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNoContent
-	return msg
-}
-
-func ResetContent(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusResetContent
-	return msg
-}
-
-func PartialContent(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusPartialContent
-	return msg
-}
-
-func MultiStatus(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusMultiStatus
-	return msg
-}
-
-func AlreadyReported(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusAlreadyReported
-	return msg
-}
-
-func IMUsed(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusIMUsed
-	return msg
-}
-
-// 3xx Redirection
-func MultipleChoices(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusMultipleChoices
-	return msg
-}
-
-func MovedPermanently(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusMovedPermanently
-	return msg
-}
-
-func Found(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusFound
-	return msg
-}
-
-func SeeOther(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusSeeOther
-	return msg
-}
-
-func NotModified(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNotModified
-	return msg
-}
-
-func UseProxy(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUseProxy
-	return msg
-}
-
-func TemporaryRedirect(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusTemporaryRedirect
-	return msg
-}
-
-func PermanentRedirect(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusPermanentRedirect
-	return msg
-}
-
-// 4xx Client Errors
-func BadRequest(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusBadRequest
-	return msg
-}
-
-func Unauthorized(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUnauthorized
-	return msg
-}
-
-func PaymentRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusPaymentRequired
-	return msg
-}
-
-func Forbidden(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusForbidden
-	return msg
-}
-
-func NotFound(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNotFound
-	return msg
-}
-
-func MethodNotAllowed(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusMethodNotAllowed
-	return msg
-}
-
-func NotAcceptable(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNotAcceptable
-	return msg
-}
-
-func ProxyAuthRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusProxyAuthRequired
-	return msg
-}
-
-func RequestTimeout(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusRequestTimeout
-	return msg
-}
-
-func Conflict(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusConflict
-	return msg
-}
-
-func Gone(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusGone
-	return msg
-}
-
-func LengthRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusLengthRequired
-	return msg
-}
-
-func PreconditionFailed(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusPreconditionFailed
-	return msg
-}
-
-func RequestEntityTooLarge(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusRequestEntityTooLarge
-	return msg
-}
-
-func RequestURITooLong(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusRequestURITooLong
-	return msg
-}
-
-func UnsupportedMediaType(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUnsupportedMediaType
-	return msg
-}
-
-func RequestedRangeNotSatisfiable(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusRequestedRangeNotSatisfiable
-	return msg
-}
-
-func ExpectationFailed(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusExpectationFailed
-	return msg
-}
-
-func Teapot(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusTeapot
-	return msg
-}
-
-func MisdirectedRequest(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusMisdirectedRequest
-	return msg
-}
-
-func UnprocessableEntity(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUnprocessableEntity
-	return msg
-}
-
-func Locked(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusLocked
-	return msg
-}
-
-func FailedDependency(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusFailedDependency
-	return msg
-}
-
-func TooEarly(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusTooEarly
-	return msg
-}
-
-func UpgradeRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUpgradeRequired
-	return msg
-}
-
-func PreconditionRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusPreconditionRequired
-	return msg
-}
-
-func TooManyRequests(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusTooManyRequests
-	return msg
-}
-
-func RequestHeaderFieldsTooLarge(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusRequestHeaderFieldsTooLarge
-	return msg
-}
-
-func UnavailableForLegalReasons(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusUnavailableForLegalReasons
-	return msg
-}
-
-// 5xx Server Errors
-func InternalServerError(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusInternalServerError
-	return msg
-}
-
-func NotImplemented(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNotImplemented
-	return msg
-}
-
-func BadGateway(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusBadGateway
-	return msg
-}
-
-func ServiceUnavailable(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusServiceUnavailable
-	return msg
-}
-
-func GatewayTimeout(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusGatewayTimeout
-	return msg
-}
-
-func HTTPVersionNotSupported(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusHTTPVersionNotSupported
-	return msg
-}
-
-func VariantAlsoNegotiates(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusVariantAlsoNegotiates
-	return msg
-}
-
-func InsufficientStorage(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusInsufficientStorage
-	return msg
-}
-
-func LoopDetected(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusLoopDetected
-	return msg
-}
-
-func NotExtended(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNotExtended
-	return msg
-}
-
-func NetworkAuthenticationRequired(opts ...ResponseOption) Message {
-	msg := createMessage(opts...)
-	msg.StatusCode = http.StatusNetworkAuthenticationRequired
-	return msg
 }

@@ -19,7 +19,7 @@ type (
 )
 
 func (t *TestAPI) GetHandler(req gtw.Message) (gtw.Message, error) {
-	return &gtw.GenericMessage{StatusCode: 200}, nil
+	return gtw.Ok()
 }
 
 func TestParse(t *testing.T) {
