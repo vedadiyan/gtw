@@ -19,7 +19,7 @@ type (
 )
 
 func (t *TestAPI) GetHandler(req gtw.Message) (gtw.Message, error) {
-	return gtw.Ok()
+	return gtw.Ok(gtw.JSON([]byte(`{"data": []}`)))
 }
 
 func TestParse(t *testing.T) {

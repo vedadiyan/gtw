@@ -47,7 +47,7 @@ type (
 	GenericMessage struct {
 		msgType     MessageType
 		r           io.ReadCloser
-		w           io.WriteCloser
+		buffer      bytes.Buffer
 		header      Header
 		protocol    any
 		StatusCode  int
@@ -57,14 +57,12 @@ type (
 )
 
 func NewHttpMessage[T MessageConstraint](protocol T) *GenericMessage {
-	r, w := io.Pipe()
 	out := &GenericMessage{
-		r:           r,
-		w:           w,
 		header:      make(Header),
 		protocol:    protocol,
 		initialized: true,
 	}
+	out.r = io.NopCloser(&out.buffer)
 
 	// Set message type based on protocol
 	switch any(protocol).(type) {
@@ -88,28 +86,20 @@ func (m *GenericMessage) Status() int {
 }
 
 func (m *GenericMessage) Read(p []byte) (int, error) {
-	m.init()
 	return m.r.Read(p)
 }
 
 func (m *GenericMessage) Write(p []byte) (int, error) {
-	m.init()
-	return m.w.Write(p)
+	return m.buffer.Write(p)
 }
 
 func (m *GenericMessage) Close() error {
 	m.init()
-	var err1, err2 error
+	var err error
 	if m.r != nil {
-		err1 = m.r.Close()
+		err = m.r.Close()
 	}
-	if m.w != nil {
-		err2 = m.w.Close()
-	}
-	if err1 != nil {
-		return err1
-	}
-	return err2
+	return err
 }
 
 func (m *GenericMessage) Header() Header {
@@ -149,7 +139,7 @@ func (m *GenericMessage) init() {
 		if m.initialized {
 			return
 		}
-		m.r, m.w = io.Pipe()
+		m.r = io.NopCloser(&m.buffer)
 		m.header = make(Header)
 		m.initialized = true
 	})
