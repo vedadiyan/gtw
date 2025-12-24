@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc/metadata"
@@ -44,22 +45,25 @@ type (
 	}
 
 	GenericMessage struct {
-		msgType    MessageType
-		r          io.ReadCloser
-		w          io.WriteCloser
-		header     Header
-		protocol   any
-		StatusCode int
+		msgType     MessageType
+		r           io.ReadCloser
+		w           io.WriteCloser
+		header      Header
+		protocol    any
+		StatusCode  int
+		once        sync.Once
+		initialized bool
 	}
 )
 
 func NewHttpMessage[T MessageConstraint](protocol T) *GenericMessage {
 	r, w := io.Pipe()
 	out := &GenericMessage{
-		r:        r,
-		w:        w,
-		header:   make(Header),
-		protocol: protocol,
+		r:           r,
+		w:           w,
+		header:      make(Header),
+		protocol:    protocol,
+		initialized: true,
 	}
 
 	// Set message type based on protocol
@@ -84,14 +88,17 @@ func (m *GenericMessage) Status() int {
 }
 
 func (m *GenericMessage) Read(p []byte) (int, error) {
+	m.init()
 	return m.r.Read(p)
 }
 
 func (m *GenericMessage) Write(p []byte) (int, error) {
+	m.init()
 	return m.w.Write(p)
 }
 
 func (m *GenericMessage) Close() error {
+	m.init()
 	var err1, err2 error
 	if m.r != nil {
 		err1 = m.r.Close()
@@ -106,10 +113,12 @@ func (m *GenericMessage) Close() error {
 }
 
 func (m *GenericMessage) Header() Header {
+	m.init()
 	return m.header
 }
 
 func (m *GenericMessage) AddReadCloser(r io.ReadCloser) {
+	m.init()
 	m.r = MultipleReadCloser(r, m.r)
 }
 
@@ -130,6 +139,19 @@ func (m *GenericMessage) WriteTo(w io.Writer) (int64, error) {
 		return 0, nil
 	}
 	return io.Copy(w, m.r)
+}
+
+func (m *GenericMessage) init() {
+	if m.initialized {
+		return
+	}
+	m.once.Do(func() {
+		if m.initialized {
+			return
+		}
+		m.r, m.w = io.Pipe()
+		m.header = make(Header)
+	})
 }
 
 const (
