@@ -55,13 +55,7 @@ func (w *GrpcResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *GrpcResponseWriter) WriteHeader(statusCode int) {
-	if w.statusCode == 0 {
-		w.statusCode = statusCode
-	}
-}
 
-func (w *GrpcResponseWriter) GetStatusCode() int {
-	return w.statusCode
 }
 
 func (w *GrpcResponseWriter) GetData() []byte {

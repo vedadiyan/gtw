@@ -234,13 +234,7 @@ func (w *JetStreamResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *JetStreamResponseWriter) WriteHeader(statusCode int) {
-	if w.statusCode == 0 {
-		w.statusCode = statusCode
-	}
-}
 
-func (w *JetStreamResponseWriter) GetStatusCode() int {
-	return w.statusCode
 }
 
 func (w *JetStreamResponseWriter) GetData() []byte {

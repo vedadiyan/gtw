@@ -99,13 +99,7 @@ func (w *NatsResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *NatsResponseWriter) WriteHeader(statusCode int) {
-	if w.statusCode == 0 {
-		w.statusCode = statusCode
-	}
-}
 
-func (w *NatsResponseWriter) GetStatusCode() int {
-	return w.statusCode
 }
 
 func (w *NatsResponseWriter) GetData() []byte {
