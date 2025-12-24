@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"maps"
 	"net/http"
 	"sync"
 
@@ -25,6 +24,13 @@ type (
 		connections map[*websocket.Conn]bool
 		connMut     sync.RWMutex
 	}
+
+	WebSocketResponseWriter struct {
+		header  http.Header
+		data    []byte
+		subject string
+	}
+
 	Option func(*websocket.Upgrader)
 )
 
@@ -34,6 +40,35 @@ var defaultUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+}
+
+func NewWebSocketResponseWriter(subject string) *WebSocketResponseWriter {
+	return &WebSocketResponseWriter{
+		header:  make(http.Header),
+		subject: subject,
+	}
+}
+
+func (w *WebSocketResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *WebSocketResponseWriter) Write(data []byte) (int, error) {
+	w.data = append(w.data, data...)
+	return len(data), nil
+}
+
+func (w *WebSocketResponseWriter) WriteHeader(statusCode int) {
+	// WebSocket doesn't use HTTP status codes in the same way
+	// This is a no-op for compatibility with http.ResponseWriter interface
+}
+
+func (w *WebSocketResponseWriter) GetData() []byte {
+	return w.data
+}
+
+func (w *WebSocketResponseWriter) GetSubject() string {
+	return w.subject
 }
 
 func NewWebSocketServer(address string, opts ...Option) *WebSocketServer {
@@ -107,12 +142,25 @@ func (ws *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 
-		res := &gtw.WebSocketMsg{
-			Headers: make(http.Header),
-			Subject: wsReq.Subject,
+		gtwReq, err := gtw.Import((*gtw.HttpRequest)(req))
+		if err != nil {
+			log.Printf("failed to import request: %v", err)
+			continue
 		}
 
-		handler.ServeHTTP(res, req)
+		if gtwReq == nil {
+			log.Println("import returned nil request")
+			continue
+		}
+
+		writer := NewWebSocketResponseWriter(wsReq.Subject)
+		handler.ServeHTTP(writer, req)
+
+		res := &gtw.WebSocketMsg{
+			Headers: writer.Header(),
+			Subject: writer.GetSubject(),
+			Data:    writer.GetData(),
+		}
 
 		resData, err := json.Marshal(res)
 		if err != nil {
@@ -178,7 +226,11 @@ func (ws *WebSocketServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) e
 		}
 
 		if res.Header() != nil {
-			maps.Copy(w.Header(), res.Header())
+			for key, values := range res.Header() {
+				for _, value := range values {
+					w.Header().Add(key, value)
+				}
+			}
 		}
 
 		if res.Status() != 0 {
@@ -208,6 +260,8 @@ func (ws *WebSocketServer) Start() error {
 
 	ws.isRunning = true
 	ws.mut.Unlock()
+
+	log.Printf("WebSocket server started on %s", ws.address)
 
 	if err := ws.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		ws.mut.Lock()
@@ -252,6 +306,8 @@ func (ws *WebSocketServer) Stop(ctx context.Context) error {
 	}
 
 	ws.isRunning = false
+
+	log.Println("WebSocket server stopped")
 	return nil
 }
 
@@ -292,4 +348,10 @@ func (ws *WebSocketServer) ConnectionCount() int {
 	ws.connMut.RLock()
 	defer ws.connMut.RUnlock()
 	return len(ws.connections)
+}
+
+func (ws *WebSocketServer) GetAddress() string {
+	ws.mut.Lock()
+	defer ws.mut.Unlock()
+	return ws.address
 }
