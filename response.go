@@ -848,7 +848,11 @@ func Protobuf(data []byte) ResponseOption {
 // Other options
 func WithHeader(header Header) ResponseOption {
 	return func(ro *responseOptions) error {
-		ro.headers = header
+		for key, values := range header {
+			for _, value := range values {
+				ro.headers.Add(key, value)
+			}
+		}
 		return nil
 	}
 }
