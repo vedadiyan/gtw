@@ -472,7 +472,7 @@ func (n *NatsJetStreamServer) Start() error {
 	// Determine filter subject based on prefix
 	filterSubject := ">"
 	if n.subjectPrefix != "" {
-		filterSubject = n.subjectPrefix + ".>"
+		filterSubject = fmt.Sprintf("%s>", n.subjectPrefix)
 	}
 
 	// Get the stream
