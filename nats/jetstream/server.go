@@ -2,8 +2,10 @@ package jetstream
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -18,11 +20,21 @@ type (
 		js            jetstream.JetStream
 		consumers     map[string]jetstream.ConsumeContext
 		streams       map[string]jetstream.Stream
+		handlers      *http.ServeMux
 		isRunning     bool
-		mut           sync.Mutex
+		mut           sync.RWMutex
 		url           string
 		streamConfig  *jetstream.StreamConfig
 		consumerGroup string
+		subjectPrefix string
+		natsOptions   []nats.Option
+	}
+
+	JetStreamResponseWriter struct {
+		header     http.Header
+		statusCode int
+		data       []byte
+		subject    string
 	}
 
 	JetStreamConfig struct {
@@ -37,10 +49,8 @@ type (
 		ConsumerGroup string
 	}
 
-	// Option pattern for server configuration
 	ServerOption func(*NatsJetStreamServer) error
 
-	// Option pattern for consumer configuration
 	ConsumerOption func(*consumerOptions)
 
 	consumerOptions struct {
@@ -71,11 +81,7 @@ func DefaultJetStreamConfig(streamName string) *JetStreamConfig {
 
 func WithNatsOptions(opts ...nats.Option) ServerOption {
 	return func(s *NatsJetStreamServer) error {
-		conn, err := nats.Connect(s.url, opts...)
-		if err != nil {
-			return fmt.Errorf("failed to connect to NATS: %w", err)
-		}
-		s.conn = conn
+		s.natsOptions = append(s.natsOptions, opts...)
 		return nil
 	}
 }
@@ -154,7 +160,16 @@ func WithReplicas(replicas int) ServerOption {
 
 func WithConsumerGroup(group string) ServerOption {
 	return func(s *NatsJetStreamServer) error {
-		s.consumerGroup = group
+		if group != "" {
+			s.consumerGroup = group
+		}
+		return nil
+	}
+}
+
+func WithSubjectPrefix(prefix string) ServerOption {
+	return func(s *NatsJetStreamServer) error {
+		s.subjectPrefix = prefix
 		return nil
 	}
 }
@@ -201,6 +216,41 @@ func defaultConsumerOptions(subject, group string) *consumerOptions {
 	}
 }
 
+func NewJetStreamResponseWriter(subject string) *JetStreamResponseWriter {
+	return &JetStreamResponseWriter{
+		header:     make(http.Header),
+		statusCode: http.StatusOK,
+		subject:    subject,
+	}
+}
+
+func (w *JetStreamResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *JetStreamResponseWriter) Write(data []byte) (int, error) {
+	w.data = append(w.data, data...)
+	return len(data), nil
+}
+
+func (w *JetStreamResponseWriter) WriteHeader(statusCode int) {
+	if w.statusCode == 0 {
+		w.statusCode = statusCode
+	}
+}
+
+func (w *JetStreamResponseWriter) GetStatusCode() int {
+	return w.statusCode
+}
+
+func (w *JetStreamResponseWriter) GetData() []byte {
+	return w.data
+}
+
+func (w *JetStreamResponseWriter) GetSubject() string {
+	return w.subject
+}
+
 func New(url string, config *JetStreamConfig, opts ...ServerOption) (*NatsJetStreamServer, error) {
 	if config == nil {
 		config = DefaultJetStreamConfig("DEFAULT_STREAM")
@@ -220,10 +270,12 @@ func New(url string, config *JetStreamConfig, opts ...ServerOption) (*NatsJetStr
 	ns := &NatsJetStreamServer{
 		consumers:     make(map[string]jetstream.ConsumeContext),
 		streams:       make(map[string]jetstream.Stream),
+		handlers:      http.NewServeMux(),
 		url:           url,
 		consumerGroup: config.ConsumerGroup,
 		streamConfig:  &streamConfig,
 		isRunning:     false,
+		natsOptions:   make([]nats.Option, 0),
 	}
 
 	// Apply options
@@ -233,14 +285,12 @@ func New(url string, config *JetStreamConfig, opts ...ServerOption) (*NatsJetStr
 		}
 	}
 
-	// Connect if not already connected via options
-	if ns.conn == nil {
-		conn, err := nats.Connect(url)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to NATS: %w", err)
-		}
-		ns.conn = conn
+	// Connect with collected options
+	conn, err := nats.Connect(url, ns.natsOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
+	ns.conn = conn
 
 	// Create JetStream context
 	js, err := jetstream.New(ns.conn)
@@ -262,6 +312,77 @@ func New(url string, config *JetStreamConfig, opts ...ServerOption) (*NatsJetStr
 	return ns, nil
 }
 
+func (n *NatsJetStreamServer) handleJetStreamMessage(msg jetstream.Msg) {
+	if msg == nil {
+		log.Println("received nil JetStream message")
+		return
+	}
+
+	var jsReq gtw.NatsMsg
+	if err := json.Unmarshal(msg.Data(), &jsReq); err != nil {
+		log.Printf("failed to unmarshal JetStream message: %v", err)
+		_ = msg.Nak()
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodPost, jsReq.Subject, nil)
+	if err != nil {
+		log.Printf("failed to create request: %v", err)
+		_ = msg.Nak()
+		return
+	}
+
+	if jsReq.Header != nil {
+		req.Header = http.Header(jsReq.Header)
+	}
+
+	handler, _ := n.handlers.Handler(req)
+	if handler == nil {
+		log.Printf("no handler found for subject: %s", jsReq.Subject)
+		_ = msg.Nak()
+		return
+	}
+
+	gtwReq, err := gtw.Import((*gtw.HttpRequest)(req))
+	if err != nil {
+		log.Printf("failed to import request: %v", err)
+		_ = msg.Nak()
+		return
+	}
+
+	if gtwReq == nil {
+		log.Println("import returned nil request")
+		_ = msg.Nak()
+		return
+	}
+
+	writer := NewJetStreamResponseWriter(jsReq.Subject)
+	handler.ServeHTTP(writer, req)
+
+	if err := msg.Ack(); err != nil {
+		log.Printf("failed to ack message: %v", err)
+		return
+	}
+
+	if msg.Reply() != "" {
+		res := &gtw.NatsMsg{
+			Header:  nats.Header(writer.Header()),
+			Subject: writer.GetSubject(),
+			Data:    writer.GetData(),
+		}
+
+		resData, err := json.Marshal(res)
+		if err != nil {
+			log.Printf("failed to marshal response: %v", err)
+			return
+		}
+
+		if err := n.conn.Publish(msg.Reply(), resData); err != nil {
+			log.Printf("failed to send response: %v", err)
+		}
+	}
+}
+
 func (n *NatsJetStreamServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 	n.mut.Lock()
 	defer n.mut.Unlock()
@@ -271,10 +392,63 @@ func (n *NatsJetStreamServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler
 	}
 
 	subject := p.Pattern()
-
-	if _, exists := n.consumers[subject]; exists {
-		return fmt.Errorf("already subscribed to subject: %s", subject)
+	if subject == "" {
+		return fmt.Errorf("pattern cannot be empty")
 	}
+
+	if fn == nil {
+		return fmt.Errorf("handler cannot be nil")
+	}
+
+	n.handlers.HandleFunc(gtw.ToGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
+		if r == nil {
+			log.Println("received nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		req, err := gtw.Import((*gtw.HttpRequest)(r))
+		if err != nil {
+			log.Printf("failed to import request: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if req == nil {
+			log.Println("import returned nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		res, err := fn(req)
+		if err != nil {
+			log.Printf("handler error: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res == nil {
+			log.Println("handler returned nil response")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if res.Header() != nil {
+			for key, values := range res.Header() {
+				for _, value := range values {
+					w.Header().Add(key, value)
+				}
+			}
+		}
+
+		if res.Status() != 0 {
+			w.WriteHeader(res.Status())
+		}
+
+		if _, err := res.WriteTo(w); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+	})
 
 	return nil
 }
@@ -295,11 +469,53 @@ func (n *NatsJetStreamServer) Start() error {
 		return fmt.Errorf("JetStream context is not initialized")
 	}
 
+	// Determine filter subject based on prefix
+	filterSubject := ">"
+	if n.subjectPrefix != "" {
+		filterSubject = n.subjectPrefix + ".>"
+	}
+
+	// Get the stream
+	var stream jetstream.Stream
+	for _, s := range n.streams {
+		stream = s
+		break
+	}
+
+	if stream == nil {
+		return fmt.Errorf("no stream available")
+	}
+
+	// Create consumer with filter
+	consumerOpts := defaultConsumerOptions(filterSubject, n.consumerGroup)
+
+	consumerConfig := jetstream.ConsumerConfig{
+		Name:          consumerOpts.name,
+		Durable:       consumerOpts.durable,
+		FilterSubject: filterSubject,
+		AckPolicy:     consumerOpts.ackPolicy,
+		MaxDeliver:    consumerOpts.maxDeliver,
+		AckWait:       consumerOpts.ackWait,
+	}
+
+	consumer, err := stream.CreateOrUpdateConsumer(context.Background(), consumerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create consumer: %w", err)
+	}
+
+	consumeCtx, err := consumer.Consume(n.handleJetStreamMessage)
+	if err != nil {
+		return fmt.Errorf("failed to start consuming: %w", err)
+	}
+
+	n.consumers[filterSubject] = consumeCtx
 	n.isRunning = true
+
+	log.Printf("JetStream server started, listening to '%s' with consumer group '%s'", filterSubject, n.consumerGroup)
 	return nil
 }
 
-func (n *NatsJetStreamServer) CreateConsumer(subject string, fn gtw.MessageHandler, opts ...ConsumerOption) error {
+func (n *NatsJetStreamServer) CreateConsumer(subject string, opts ...ConsumerOption) error {
 	n.mut.Lock()
 	defer n.mut.Unlock()
 
@@ -337,57 +553,7 @@ func (n *NatsJetStreamServer) CreateConsumer(subject string, fn gtw.MessageHandl
 		return fmt.Errorf("failed to create consumer: %w", err)
 	}
 
-	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
-		natsMsg := &nats.Msg{
-			Subject: msg.Subject(),
-			Reply:   msg.Reply(),
-			Header:  msg.Headers(),
-			Data:    msg.Data(),
-		}
-
-		req, err := gtw.Import((*gtw.NatsMsg)(natsMsg))
-		if err != nil {
-			log.Printf("failed to import message: %v", err)
-			_ = msg.Nak()
-			return
-		}
-
-		res, err := fn(req)
-		if err != nil {
-			log.Printf("handler error: %v", err)
-			_ = msg.Nak()
-			return
-		}
-
-		if res == nil {
-			log.Println("handler returned nil response")
-			_ = msg.Nak()
-			return
-		}
-
-		if err := msg.Ack(); err != nil {
-			log.Printf("failed to ack message: %v", err)
-			return
-		}
-
-		if natsMsg.Reply != "" {
-			natsRes, err := gtw.Export[gtw.NatsMsg](res)
-			if err != nil {
-				log.Printf("failed to export response: %v", err)
-				return
-			}
-
-			err = n.conn.PublishMsg(&nats.Msg{
-				Subject: natsMsg.Reply,
-				Header:  natsRes.Header,
-				Data:    natsRes.Data,
-			})
-			if err != nil {
-				log.Printf("failed to send response: %v", err)
-			}
-		}
-	})
-
+	consumeCtx, err := consumer.Consume(n.handleJetStreamMessage)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming: %w", err)
 	}
@@ -397,9 +563,17 @@ func (n *NatsJetStreamServer) CreateConsumer(subject string, fn gtw.MessageHandl
 }
 
 func (n *NatsJetStreamServer) Publish(subject string, msg gtw.Message) error {
+	if msg == nil {
+		return fmt.Errorf("message cannot be nil")
+	}
+
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return fmt.Errorf("failed to export message: %w", err)
+	}
+
+	if natsMsg == nil {
+		return fmt.Errorf("exported message is nil")
 	}
 
 	jsMsg := &nats.Msg{
@@ -417,9 +591,17 @@ func (n *NatsJetStreamServer) Publish(subject string, msg gtw.Message) error {
 }
 
 func (n *NatsJetStreamServer) PublishAsync(subject string, msg gtw.Message) (jetstream.PubAckFuture, error) {
+	if msg == nil {
+		return nil, fmt.Errorf("message cannot be nil")
+	}
+
 	natsMsg, err := gtw.Export[gtw.NatsMsg](msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export message: %w", err)
+	}
+
+	if natsMsg == nil {
+		return nil, fmt.Errorf("exported message is nil")
 	}
 
 	jsMsg := &nats.Msg{
@@ -437,10 +619,13 @@ func (n *NatsJetStreamServer) PublishAsync(subject string, msg gtw.Message) (jet
 }
 
 func (n *NatsJetStreamServer) GetStreamInfo() (*jetstream.StreamInfo, error) {
-	n.mut.Lock()
-	defer n.mut.Unlock()
+	n.mut.RLock()
+	defer n.mut.RUnlock()
 
 	for _, stream := range n.streams {
+		if stream == nil {
+			continue
+		}
 		info, err := stream.Info(context.Background())
 		if err != nil {
 			return nil, err
@@ -460,7 +645,9 @@ func (n *NatsJetStreamServer) DeleteConsumer(subject string) error {
 		return fmt.Errorf("consumer not found for subject: %s", subject)
 	}
 
-	consumeCtx.Stop()
+	if consumeCtx != nil {
+		consumeCtx.Stop()
+	}
 	delete(n.consumers, subject)
 
 	return nil
@@ -474,9 +661,15 @@ func (n *NatsJetStreamServer) Stop(ctx context.Context) error {
 		return gtw.ErrServerNotStarted
 	}
 
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+
 	for subject, consumeCtx := range n.consumers {
-		consumeCtx.Stop()
-		log.Printf("stopped consumer for subject: %s", subject)
+		if consumeCtx != nil {
+			consumeCtx.Stop()
+			log.Printf("stopped consumer for subject: %s", subject)
+		}
 	}
 
 	if err := n.conn.Drain(); err != nil {
@@ -488,5 +681,18 @@ func (n *NatsJetStreamServer) Stop(ctx context.Context) error {
 	n.isRunning = false
 	n.consumers = make(map[string]jetstream.ConsumeContext)
 
+	log.Println("JetStream server stopped")
 	return nil
+}
+
+func (n *NatsJetStreamServer) GetConsumerGroup() string {
+	n.mut.RLock()
+	defer n.mut.RUnlock()
+	return n.consumerGroup
+}
+
+func (n *NatsJetStreamServer) GetSubjectPrefix() string {
+	n.mut.RLock()
+	defer n.mut.RUnlock()
+	return n.subjectPrefix
 }
