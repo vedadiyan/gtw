@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -47,25 +46,47 @@ func New(address string) *HttpServer {
 func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 	h.mut.Lock()
 	defer h.mut.Unlock()
+
 	if h.isRunning {
-		return fmt.Errorf("server is already running")
+		return gtw.ErrServerAlreadyRunning
 	}
-	if _, ok := h.routes[p.Method()]; !ok {
-		h.routes[p.Method()] = http.NewServeMux()
+
+	subject := p.Pattern()
+	if subject == "" {
+		return fmt.Errorf("pattern cannot be empty")
 	}
+
+	if fn == nil {
+		return fmt.Errorf("handler cannot be nil")
+	}
+
 	h.routes[p.Method()].HandleFunc(gtw.ToGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
+		if r == nil {
+			log.Println("received nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
 		req, err := gtw.Import((*gtw.HttpRequest)(r))
 		if err != nil {
-			log.Println(err)
+			log.Printf("failed to import request: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+
+		if req == nil {
+			log.Println("import returned nil request")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
 		res, err := fn(req)
 		if err != nil {
-			log.Println(err)
+			log.Printf("handler error: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+
 		if res == nil {
 			log.Println("handler returned nil response")
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -73,13 +94,20 @@ func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 		}
 
 		if res.Header() != nil {
-			maps.Copy(w.Header(), res.Header())
-			if res.Status() != 0 {
-				w.WriteHeader(res.Status())
+			for key, values := range res.Header() {
+				for _, value := range values {
+					w.Header().Add(key, value)
+				}
 			}
 		}
 
-		_, _ = res.WriteTo(w)
+		if res.Status() != 0 {
+			w.WriteHeader(res.Status())
+		}
+
+		if _, err := res.WriteTo(w); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
 	})
 	return nil
 }
