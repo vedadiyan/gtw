@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/vedadiyan/gtw/v2"
-	"github.com/vedadiyan/gtw/v2/di"
 	"github.com/vedadiyan/gtw/v2/websocket"
+	"github.com/vedadiyan/vedio"
 )
 
 type (
@@ -25,10 +25,9 @@ func (t *TestAPI) GetHandler(req gtw.Message) (gtw.Message, error) {
 }
 
 func TestParse(t *testing.T) {
-	di.AddSinletonWithName("test", func() (instance *int, err error) {
-		i := 0
-		return &i, nil
-	})
+	vedio.Register[int](vedio.WithName("test"), vedio.WithGenerator(func() (int, error) {
+		return 0, nil
+	}))
 
 	ttt := gtw.WebSocketMsg{
 		Subject: "test",

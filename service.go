@@ -1,73 +1,59 @@
 package gtw
 
 import (
-	"time"
-
-	"github.com/vedadiyan/gtw/v2/di"
+	"github.com/vedadiyan/vedio"
 )
 
 type (
 	Service[T any] struct {
-		name     string
-		hasScope bool
-		scopeId  uint64
-		ttl      time.Duration
+		name string
 	}
+
+	Scope = vedio.Scoped
 )
 
-func AddSingleton[T any](fn func() (instance *T, err error)) error {
-	return di.AddSinleton(fn)
+func AddSingleton[T any]() error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.SINGLETON))
 }
 
-func AddSingletonWithName[T any](name string, fn func() (instance *T, err error)) error {
-	return di.AddSinletonWithName(name, fn)
+func AddSingletonWithName[T any](name string) error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.SINGLETON), vedio.WithName(name))
 }
 
-func AddTransient[T any](fn func() (instance *T, err error)) error {
-	return di.AddTransient(fn)
+func AddTransient[T any]() error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.TRANSIENT))
 }
 
-func AddTransientWithName[T any](name string, fn func() (instance *T, err error)) error {
-	return di.AddTransientWithName(name, fn)
+func AddTransientWithName[T any](name string) error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.TRANSIENT), vedio.WithName(name))
 }
 
-func AddScoped[T any](fn func() (instance *T, err error)) error {
-	return di.AddScoped(fn)
+func AddScoped[T any]() error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.SCOPED))
 }
 
-func AddScopedWithName[T any](name string, fn func() (instance *T, err error)) error {
-	return di.AddScopedWithName(name, fn)
+func AddScopedWithName[T any](name string) error {
+	return vedio.Register[T](vedio.WithLifeCycle(vedio.TRANSIENT), vedio.WithName(name))
 }
 
-func (i *Service[T]) Value() *T {
-	var options *di.Options
-	if i.hasScope {
-		options = di.NewOptions(i.scopeId, i.ttl)
+func (i *Service[T]) Value(scope Scope) (T, error) {
+	name := vedio.Default
+	if len(i.name) != 0 {
+		name = i.name
 	}
-	if len(i.name) == 0 {
-		return di.ResolveOrPanic[T](options)
+	val, err := vedio.ResolveNamed[T](name, vedio.WithScope(scope))
+	if err != nil {
+		var zero T
+		return zero, err
 	}
-	return di.ResolveWithNameOrPanic[T](i.name, options)
+	return val, nil
 }
 
-func (i *Service[T]) ValueOrNil() *T {
-	var options *di.Options
-	if i.hasScope {
-		options = di.NewOptions(i.scopeId, i.ttl)
-	}
-	if len(i.name) == 0 {
-		return di.ResolveOrNil[T](options)
-	}
-	if inst, err := di.ResolveWithName[T](i.name, options); err == nil {
-		return inst
-	}
-	return nil
+func (i *Service[T]) ValueOrZero(scope Scope) T {
+	val, _ := i.Value(scope)
+	return val
 }
 
-func (i *Service[T]) Scope(scopeId uint64, ttl time.Duration) *Service[T] {
-	copy := *i
-	copy.hasScope = true
-	copy.scopeId = scopeId
-	copy.ttl = ttl
-	return &copy
+func NewScope() Scope {
+	return vedio.NewScope()
 }
