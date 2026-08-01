@@ -60,7 +60,13 @@ func (h *HttpServer) HandleMessage(p gtw.Pattern, fn gtw.MessageHandler) error {
 		return fmt.Errorf("handler cannot be nil")
 	}
 
-	h.routes[p.Method()].HandleFunc(gtw.ToGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
+	handler, ok := h.routes[p.Method()]
+	if !ok {
+		handler = http.NewServeMux()
+		h.routes[p.Method()] = handler
+	}
+
+	handler.HandleFunc(gtw.ToGoRouteTemplate(p.Pattern()), func(w http.ResponseWriter, r *http.Request) {
 		if r == nil {
 			log.Println("received nil request")
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)

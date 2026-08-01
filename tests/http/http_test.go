@@ -1,12 +1,10 @@
 package gtw
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/vedadiyan/gtw/v2"
-	"github.com/vedadiyan/gtw/v2/websocket"
+	"github.com/vedadiyan/gtw/v2/http"
 	"github.com/vedadiyan/vedio"
 )
 
@@ -28,16 +26,7 @@ func TestParse(t *testing.T) {
 	vedio.Register[int](vedio.WithName("test"), vedio.WithGenerator(func() (int, error) {
 		return 0, nil
 	}))
-
-	ttt := gtw.WebSocketMsg{
-		Subject: "test",
-		Data:    []byte("OK"),
-	}
-
-	xxx, _ := json.MarshalIndent(ttt, "", " ")
-
-	fmt.Println(string(xxx))
-	server := websocket.NewWebSocketServer(":8082")
 	gtw.Register(&TestAPI{})
+	server := http.New(":8082")
 	gtw.ListenAndServer(server)
 }
