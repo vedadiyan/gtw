@@ -21,7 +21,7 @@ type (
 	TestAPI struct {
 		gtw.Metadata `prefix:"api"`
 
-		Test gtw.ServiceProxy[ExpectedInterface] `name:"test"`
+		Test gtw.Proxy[ExpectedInterface] `name:"test"`
 
 		Get gtw.MessageHandler `route:"/test/:name" method:"GET"`
 	}
@@ -37,7 +37,7 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (t *TestAPI) GetHandler(req gtw.Message) (gtw.Message, error) {
-	t.Test.Proxy(nil, context.TODO())
+	t.Test.Run(nil, context.TODO())
 	return gtw.Ok(gtw.JSON(map[string]any{"Hello": "World"}))
 }
 

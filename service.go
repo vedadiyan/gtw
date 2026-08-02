@@ -13,7 +13,7 @@ type (
 		name string
 	}
 
-	ServiceProxy[T any] struct {
+	Proxy[T any] struct {
 		name    string
 		builder func(scope Scope, args ...any) ([]any, error)
 		once    sync.Once
@@ -64,7 +64,7 @@ func (i *Service[T]) ValueOrZero(scope Scope) T {
 	return val
 }
 
-func (i *ServiceProxy[T]) build(scope Scope) error {
+func (i *Proxy[T]) build(scope Scope) error {
 	name := vedio.Default
 	if len(i.name) != 0 {
 		name = i.name
@@ -113,7 +113,7 @@ func (i *ServiceProxy[T]) build(scope Scope) error {
 	return nil
 }
 
-func (i *ServiceProxy[T]) Proxy(scope Scope, args ...any) ([]any, error) {
+func (i *Proxy[T]) Run(scope Scope, args ...any) ([]any, error) {
 	i.once.Do(func() {
 		i.build(scope)
 	})
