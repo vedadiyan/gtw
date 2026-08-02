@@ -1,6 +1,7 @@
 package gtw
 
 import (
+	"context"
 	"testing"
 
 	"github.com/vedadiyan/gtw/v2"
@@ -9,23 +10,39 @@ import (
 )
 
 type (
+	Service struct {
+		id int
+	}
+
+	ExpectedInterface interface {
+		Run(context.Context, int)
+	}
+
 	TestAPI struct {
 		gtw.Metadata `prefix:"api"`
 
-		Test gtw.Service[int] `name:"test"`
+		Test gtw.ServiceProxy[ExpectedInterface] `name:"test"`
 
 		Get gtw.MessageHandler `route:"/test/:name" method:"GET"`
 	}
 )
 
+func (s *Service) Init() error {
+	s.id = 100
+	return nil
+}
+
+func (s *Service) Run(ctx context.Context) error {
+	return nil
+}
+
 func (t *TestAPI) GetHandler(req gtw.Message) (gtw.Message, error) {
+	t.Test.Proxy(nil, context.TODO())
 	return gtw.Ok(gtw.JSON(map[string]any{"Hello": "World"}))
 }
 
 func TestParse(t *testing.T) {
-	vedio.Register[int](vedio.WithName("test"), vedio.WithGenerator(func() (int, error) {
-		return 0, nil
-	}))
+	vedio.RegisterFor[any, Service](vedio.WithName("test"))
 	gtw.Register(&TestAPI{})
 	server := http.New(":8082")
 	gtw.ListenAndServer(server)

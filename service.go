@@ -1,12 +1,22 @@
 package gtw
 
 import (
+	"fmt"
+	"reflect"
+	"sync"
+
 	"github.com/vedadiyan/vedio"
 )
 
 type (
 	Service[T any] struct {
 		name string
+	}
+
+	ServiceProxy[T any] struct {
+		name    string
+		builder func(scope Scope, args ...any) ([]any, error)
+		once    sync.Once
 	}
 
 	Scope = vedio.Scoped
@@ -52,6 +62,63 @@ func (i *Service[T]) Value(scope Scope) (T, error) {
 func (i *Service[T]) ValueOrZero(scope Scope) T {
 	val, _ := i.Value(scope)
 	return val
+}
+
+func (i *ServiceProxy[T]) build(scope Scope) error {
+	name := vedio.Default
+	if len(i.name) != 0 {
+		name = i.name
+	}
+	service, err := vedio.ResolveNamed[any](name, vedio.WithScope(scope))
+	if err != nil {
+		return err
+	}
+	typeOfService := reflect.TypeOf(service)
+	typeOfProxy := reflect.TypeFor[T]()
+	targetMethodName := typeOfProxy.Method(0).Name
+	targetMethod, ok := typeOfService.MethodByName(targetMethodName)
+	if !ok {
+		return fmt.Errorf("")
+	}
+
+	sourceInputs := targetMethod.Type.NumIn()
+	sourceOutputs := targetMethod.Type.NumOut()
+
+	i.builder = func(scope Scope, args ...any) ([]any, error) {
+		in := make([]reflect.Value, sourceInputs)
+		service, err := vedio.ResolveNamed[any](name, vedio.WithScope(scope))
+		if err != nil {
+			return nil, err
+		}
+		in[0] = reflect.ValueOf(service)
+		for i, arg := range args {
+			if i > sourceInputs {
+				break
+			}
+			index := i + 1
+			aVal := reflect.ValueOf(arg)
+			if aVal.Type().AssignableTo(targetMethod.Type.In(index)) {
+				in[index] = aVal
+				continue
+			}
+			in[index] = reflect.New(targetMethod.Type.In(index)).Elem()
+		}
+		res := targetMethod.Func.Call(in)
+		out := make([]any, sourceOutputs)
+		for i, r := range res {
+			out[i] = r.Interface()
+		}
+		return out, nil
+	}
+	return nil
+}
+
+func (i *ServiceProxy[T]) Proxy(scope Scope, args ...any) ([]any, error) {
+	i.once.Do(func() {
+		i.build(scope)
+	})
+
+	return i.builder(scope, args...)
 }
 
 func NewScope() Scope {

@@ -76,6 +76,16 @@ func register(v any) func(Server) error {
 					f.Set(reflect.ValueOf(name))
 				}
 			}
+			if strings.HasPrefix(field.Type.Name(), "ServiceProxy[") && field.Type.PkgPath() == "github.com/vedadiyan/gtw/v2" {
+				rf := val.Elem().Field(i)
+				name, ok := field.Tag.Lookup("name")
+				if ok {
+					f := rf.FieldByName("name")
+					// #nosec G103
+					f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
+					f.Set(reflect.ValueOf(name))
+				}
+			}
 		}
 		return nil
 	}
