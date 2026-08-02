@@ -80,6 +80,13 @@ func register(v any) func(Server) error {
 			}
 			if strings.HasPrefix(field.Type.Name(), "Proxy[") && field.Type.PkgPath() == pkgPath {
 				rf := val.Elem().Field(i)
+				genType, ok := field.Type.FieldByName("proxyType")
+				if !ok {
+					return fmt.Errorf("expectation failed")
+				}
+				if genType.Type.NumMethod() != 1 {
+					return fmt.Errorf("the proxy interface should have exactly one method")
+				}
 				name, ok := field.Tag.Lookup("name")
 				if ok {
 					f := rf.FieldByName("name")

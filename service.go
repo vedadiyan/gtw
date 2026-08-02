@@ -14,9 +14,10 @@ type (
 	}
 
 	Proxy[T any] struct {
-		name    string
-		builder func(scope Scope, args ...any) ([]any, error)
-		once    sync.Once
+		name      string
+		builder   func(scope Scope, args ...any) ([]any, error)
+		once      sync.Once
+		proxyType T
 	}
 
 	Scope = vedio.Scoped
