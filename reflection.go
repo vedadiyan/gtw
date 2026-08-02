@@ -8,13 +8,15 @@ import (
 )
 
 type (
-	Metadata byte
+	Metadata    byte
+	pkgRefernce any
 )
 
 var (
 	controllers  []func(Server) error
 	handlerType  reflect.Type
 	metadataType reflect.Type
+	pkgPath      = reflect.TypeFor[pkgRefernce]().PkgPath()
 )
 
 func init() {
@@ -66,7 +68,7 @@ func register(v any) func(Server) error {
 				}
 				continue
 			}
-			if strings.HasPrefix(field.Type.Name(), "Service[") && field.Type.PkgPath() == "github.com/vedadiyan/gtw/v2" {
+			if strings.HasPrefix(field.Type.Name(), "Service[") && field.Type.PkgPath() == pkgPath {
 				rf := val.Elem().Field(i)
 				name, ok := field.Tag.Lookup("name")
 				if ok {
@@ -76,7 +78,7 @@ func register(v any) func(Server) error {
 					f.Set(reflect.ValueOf(name))
 				}
 			}
-			if strings.HasPrefix(field.Type.Name(), "Proxy[") && field.Type.PkgPath() == "github.com/vedadiyan/gtw/v2" {
+			if strings.HasPrefix(field.Type.Name(), "Proxy[") && field.Type.PkgPath() == pkgPath {
 				rf := val.Elem().Field(i)
 				name, ok := field.Tag.Lookup("name")
 				if ok {
